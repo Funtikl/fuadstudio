@@ -25,6 +25,14 @@ export interface Adjustments {
   dust: number;
   halation: number;
   chromaticAberration: number;
+  softFocus: number;
+  filmBurn: number;
+  posterize: number;
+  splitToneShadow: number;
+  splitToneHighlight: number;
+  pixelate: number;
+  scanLines: number;
+  dispersion: number;
 }
 
 export interface Photo {
@@ -63,4 +71,12 @@ export const DEFAULT_ADJUSTMENTS: Adjustments = {
   dust: 0,
   halation: 0,
   chromaticAberration: 0,
+  softFocus: 0,
+  filmBurn: 0,
+  posterize: 0,
+  splitToneShadow: 0,
+  splitToneHighlight: 0,
+  pixelate: 0,
+  scanLines: 0,
+  dispersion: 0,
 };

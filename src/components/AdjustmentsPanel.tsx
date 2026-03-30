@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Adjustments, DEFAULT_ADJUSTMENTS } from '../types';
-import { Sun, Contrast, Droplet, Thermometer, Palette, Image as ImageIcon, CloudFog, Focus, Sparkles, CircleDashed, ArrowUpCircle, ArrowDownCircle, Zap, Pipette, PaintBucket, FlipHorizontal, RotateCcw, Diamond, ScanSearch, Eclipse, Wind, Flower, Layers, Aperture } from 'lucide-react';
+import { Sun, Contrast, Droplet, Thermometer, Palette, Image as ImageIcon, CloudFog, Focus, Sparkles, CircleDashed, ArrowUpCircle, ArrowDownCircle, Zap, Pipette, PaintBucket, FlipHorizontal, RotateCcw, Diamond, ScanSearch, Eclipse, Wind, Flower, Layers, Aperture, Disc, Flame, LayoutGrid, Moon, Sunrise, Hash, ScanLine, Star } from 'lucide-react';
 
 interface Props {
   adjustments: Adjustments;
@@ -38,6 +38,16 @@ const TOOLS = [
   { key: 'dust', label: 'Dust', icon: CircleDashed, min: 0, max: 100 },
   { key: 'halation', label: 'Halation', icon: Eclipse, min: 0, max: 100 },
   { key: 'chromaticAberration', label: 'Aberration', icon: Aperture, min: 0, max: 100 },
+  // Creative
+  { key: 'softFocus', label: 'Soft Focus', icon: Disc, min: 0, max: 100 },
+  { key: 'filmBurn', label: 'Film Burn', icon: Flame, min: 0, max: 100 },
+  { key: 'dispersion', label: 'Dispersion', icon: Star, min: 0, max: 100 },
+  { key: 'posterize', label: 'Posterize', icon: LayoutGrid, min: 0, max: 100 },
+  { key: 'pixelate', label: 'Pixelate', icon: Hash, min: 0, max: 100 },
+  { key: 'scanLines', label: 'Scan Lines', icon: ScanLine, min: 0, max: 100 },
+  // Split Tone
+  { key: 'splitToneShadow', label: 'Shadow Hue', icon: Moon, min: -180, max: 180 },
+  { key: 'splitToneHighlight', label: 'Hi-light Hue', icon: Sunrise, min: -180, max: 180 },
 ];
 
 export default function AdjustmentsPanel({ adjustments, onChange }: Props) {

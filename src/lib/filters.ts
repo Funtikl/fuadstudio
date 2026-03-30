@@ -16,6 +16,9 @@ export type Filter = {
   shadowTint?: string;          // color tint applied to shadows via multiply blend
   burnEdges?: number;           // aggressive colour-burn edge darkening (0–100)
   chromaticAberration?: number; // RGB lens fringing strength (0–100)
+  softFocus?: number;           // dreamy soft focus glow (0–100)
+  filmBurn?: number;            // bottom-right warm light leak (0–100)
+  scanLines?: number;           // VHS/CRT horizontal scan lines (0–100)
 };
 
 export const FILTERS: Filter[] = [
@@ -164,14 +167,14 @@ export const FILTERS: Filter[] = [
   { id: 'golden_hour', name: 'Golden Hour', category: 'Magic',
     css: 'sepia(0.48) contrast(1.25) saturate(1.7) hue-rotate(-24deg) brightness(1.20)',
     grain: 24, vignette: 42, lightLeak: 58, fade: 10, halation: 35,
-    chromaticAberration: 18,
+    chromaticAberration: 18, softFocus: 18, filmBurn: 25,
     shadowTint: 'rgba(160, 60, 0, 0.28)',
     burnEdges: 28,
     tintOverlay: 'rgba(255, 130, 20, 0.24)' },
 
   { id: 'velvet', name: 'Velvet', category: 'Magic',
     css: 'contrast(0.62) saturate(0.50) brightness(1.22) sepia(0.20)',
-    grain: 22, vignette: 22, fade: 32, bloom: 45,
+    grain: 22, vignette: 22, fade: 32, bloom: 45, softFocus: 35,
     shadowTint: 'rgba(185, 130, 200, 0.22)',
     burnEdges: 22,
     tintOverlay: 'rgba(255, 190, 240, 0.22)' },
@@ -179,14 +182,14 @@ export const FILTERS: Filter[] = [
   { id: 'celestial', name: 'Celestial', category: 'Magic',
     css: 'contrast(1.38) saturate(1.72) hue-rotate(28deg) brightness(1.20)',
     grain: 16, vignette: 45, bloom: 48, halation: 28,
-    chromaticAberration: 28,
+    chromaticAberration: 28, softFocus: 12,
     shadowTint: 'rgba(20, 40, 200, 0.32)',
     burnEdges: 40,
     tintOverlay: 'rgba(90, 140, 255, 0.26)' },
 
   { id: 'rose_gold', name: 'Rose Gold', category: 'Magic',
     css: 'sepia(0.35) contrast(1.14) saturate(1.68) hue-rotate(-35deg) brightness(1.14)',
-    grain: 18, vignette: 35, lightLeak: 28, fade: 12,
+    grain: 18, vignette: 35, lightLeak: 28, fade: 12, softFocus: 14, filmBurn: 15,
     chromaticAberration: 15,
     shadowTint: 'rgba(190, 60, 90, 0.26)',
     burnEdges: 28,
@@ -194,7 +197,7 @@ export const FILTERS: Filter[] = [
 
   { id: 'dusk', name: 'Dusk', category: 'Magic',
     css: 'sepia(0.10) contrast(1.58) saturate(0.60) hue-rotate(35deg) brightness(0.78)',
-    grain: 48, vignette: 62, fade: 6,
+    grain: 48, vignette: 62, fade: 6, scanLines: 10,
     chromaticAberration: 12,
     shadowTint: 'rgba(50, 20, 190, 0.35)',
     burnEdges: 50,
