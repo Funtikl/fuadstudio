@@ -1,0 +1,7 @@
+{
+  "name": "Fuad's Studio",
+  "description": "A progressive web app for capturing and applying beautiful filters to your photos.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
