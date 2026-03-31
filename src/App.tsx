@@ -54,6 +54,10 @@ export default function App() {
     setView('editor');
   }, []);
 
+  const handleDeletePhoto = useCallback((id: string) => {
+    setPhotos(prev => prev.filter(p => p.id !== id));
+  }, []);
+
   const handleCloseEditor = useCallback(() => {
     setEditingPhoto(null);
     setView('studio');
@@ -96,6 +100,7 @@ export default function App() {
               onOpenCamera={handleOpenCamera}
               onOpenPhoto={handleOpenPhoto}
               onImport={handleImport}
+              onDelete={handleDeletePhoto}
             />
           </motion.div>
         )}
