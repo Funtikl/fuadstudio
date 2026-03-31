@@ -1,23 +1,33 @@
 export interface Adjustments {
+  // Tone
   exposure: number;
   brightness: number;
   contrast: number;
   highlights: number;
   shadows: number;
+  // Detail
   sharpness: number;
   detail: number;
   clarity: number;
   dehaze: number;
+  microContrast: number;      // Leica/Hasselblad S-curve local contrast (3D pop)
+  highlightRolloff: number;   // Gentle highlight shoulder compression
+  // Color
   saturation: number;
   vibrance: number;
   warmth: number;
   tint: number;
   hue: number;
+  // Split Tone
+  splitToneShadow: number;    // Hue angle for shadow tint (-180 to 180)
+  splitToneHighlight: number; // Hue angle for highlight tint (-180 to 180)
+  // Classic Effects
   sepia: number;
   grayscale: number;
   invert: number;
   blur: number;
   fade: number;
+  // Analog / Film
   bloom: number;
   vignette: number;
   grain: number;
@@ -27,9 +37,9 @@ export interface Adjustments {
   chromaticAberration: number;
   softFocus: number;
   filmBurn: number;
+  portraitGlow: number;       // Warm skin-tone enhancing glow
+  // Creative
   posterize: number;
-  splitToneShadow: number;
-  splitToneHighlight: number;
   pixelate: number;
   scanLines: number;
   dispersion: number;
@@ -54,11 +64,15 @@ export const DEFAULT_ADJUSTMENTS: Adjustments = {
   detail: 0,
   clarity: 0,
   dehaze: 0,
+  microContrast: 0,
+  highlightRolloff: 0,
   saturation: 0,
   vibrance: 0,
   warmth: 0,
   tint: 0,
   hue: 0,
+  splitToneShadow: 0,
+  splitToneHighlight: 0,
   sepia: 0,
   grayscale: 0,
   invert: 0,
@@ -73,9 +87,8 @@ export const DEFAULT_ADJUSTMENTS: Adjustments = {
   chromaticAberration: 0,
   softFocus: 0,
   filmBurn: 0,
+  portraitGlow: 0,
   posterize: 0,
-  splitToneShadow: 0,
-  splitToneHighlight: 0,
   pixelate: 0,
   scanLines: 0,
   dispersion: 0,

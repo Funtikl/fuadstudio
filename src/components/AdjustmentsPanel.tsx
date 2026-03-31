@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Adjustments, DEFAULT_ADJUSTMENTS } from '../types';
-import { Sun, Contrast, Droplet, Thermometer, Palette, Image as ImageIcon, CloudFog, Focus, Sparkles, CircleDashed, ArrowUpCircle, ArrowDownCircle, Zap, Pipette, PaintBucket, FlipHorizontal, RotateCcw, Diamond, ScanSearch, Eclipse, Wind, Flower, Layers, Aperture, Disc, Flame, LayoutGrid, Moon, Sunrise, Hash, ScanLine, Star } from 'lucide-react';
+import { Sun, Contrast, Droplet, Thermometer, Palette, Image as ImageIcon, CloudFog, Focus, Sparkles, CircleDashed, ArrowUpCircle, ArrowDownCircle, Zap, Pipette, PaintBucket, FlipHorizontal, RotateCcw, Diamond, ScanSearch, Eclipse, Wind, Flower, Layers, Aperture, Disc, Flame, LayoutGrid, Moon, Sunrise, Hash, ScanLine, Star, Box, ChevronDown, Heart } from 'lucide-react';
 
 interface Props {
   adjustments: Adjustments;
@@ -8,46 +8,51 @@ interface Props {
 }
 
 const TOOLS = [
-  // Light
+  // Tone
   { key: 'exposure', label: 'Exposure', icon: Sun, min: -100, max: 100 },
   { key: 'brightness', label: 'Brightness', icon: CircleDashed, min: -100, max: 100 },
   { key: 'contrast', label: 'Contrast', icon: Contrast, min: -100, max: 100 },
   { key: 'highlights', label: 'Highlights', icon: ArrowUpCircle, min: -100, max: 100 },
   { key: 'shadows', label: 'Shadows', icon: ArrowDownCircle, min: -100, max: 100 },
-  // Detail
+  // Detail & Optics
   { key: 'sharpness', label: 'Sharpen', icon: Diamond, min: 0, max: 100 },
   { key: 'detail', label: 'Detail', icon: ScanSearch, min: 0, max: 100 },
+  { key: 'microContrast', label: 'Micro Cont.', icon: Box, min: 0, max: 100 },
   { key: 'clarity', label: 'Clarity', icon: Eclipse, min: -100, max: 100 },
   { key: 'dehaze', label: 'Dehaze', icon: Wind, min: -100, max: 100 },
+  { key: 'highlightRolloff', label: 'Rolloff', icon: ChevronDown, min: 0, max: 100 },
   // Color
   { key: 'saturation', label: 'Saturation', icon: Droplet, min: -100, max: 100 },
   { key: 'vibrance', label: 'Vibrance', icon: Zap, min: -100, max: 100 },
   { key: 'warmth', label: 'Warmth', icon: Thermometer, min: -100, max: 100 },
   { key: 'tint', label: 'Tint', icon: Pipette, min: -100, max: 100 },
   { key: 'hue', label: 'Hue', icon: Palette, min: -180, max: 180 },
+  // Split Tone
+  { key: 'splitToneShadow', label: 'Shadow Hue', icon: Moon, min: -180, max: 180 },
+  { key: 'splitToneHighlight', label: 'Hi-light Hue', icon: Sunrise, min: -180, max: 180 },
   // Effects
+  { key: 'fade', label: 'Fade', icon: Layers, min: 0, max: 100 },
+  { key: 'bloom', label: 'Bloom', icon: Flower, min: 0, max: 100 },
+  { key: 'softFocus', label: 'Soft Focus', icon: Disc, min: 0, max: 100 },
+  { key: 'portraitGlow', label: 'Portrait', icon: Heart, min: 0, max: 100 },
+  { key: 'vignette', label: 'Vignette', icon: Focus, min: 0, max: 100 },
+  // Analog Film
+  { key: 'grain', label: 'Grain', icon: Sparkles, min: 0, max: 100 },
+  { key: 'halation', label: 'Halation', icon: Eclipse, min: 0, max: 100 },
+  { key: 'lightLeak', label: 'Light Leak', icon: Zap, min: 0, max: 100 },
+  { key: 'filmBurn', label: 'Film Burn', icon: Flame, min: 0, max: 100 },
+  { key: 'dust', label: 'Dust', icon: CircleDashed, min: 0, max: 100 },
+  { key: 'chromaticAberration', label: 'Aberration', icon: Aperture, min: 0, max: 100 },
+  // Classic
   { key: 'sepia', label: 'Sepia', icon: ImageIcon, min: 0, max: 100 },
   { key: 'grayscale', label: 'Grayscale', icon: PaintBucket, min: 0, max: 100 },
   { key: 'invert', label: 'Invert', icon: FlipHorizontal, min: 0, max: 100 },
   { key: 'blur', label: 'Blur', icon: CloudFog, min: 0, max: 100 },
-  { key: 'fade', label: 'Fade', icon: Layers, min: 0, max: 100 },
-  { key: 'bloom', label: 'Bloom', icon: Flower, min: 0, max: 100 },
-  { key: 'vignette', label: 'Vignette', icon: Focus, min: 0, max: 100 },
-  { key: 'grain', label: 'Grain', icon: Sparkles, min: 0, max: 100 },
-  { key: 'lightLeak', label: 'Light Leak', icon: Zap, min: 0, max: 100 },
-  { key: 'dust', label: 'Dust', icon: CircleDashed, min: 0, max: 100 },
-  { key: 'halation', label: 'Halation', icon: Eclipse, min: 0, max: 100 },
-  { key: 'chromaticAberration', label: 'Aberration', icon: Aperture, min: 0, max: 100 },
   // Creative
-  { key: 'softFocus', label: 'Soft Focus', icon: Disc, min: 0, max: 100 },
-  { key: 'filmBurn', label: 'Film Burn', icon: Flame, min: 0, max: 100 },
   { key: 'dispersion', label: 'Dispersion', icon: Star, min: 0, max: 100 },
   { key: 'posterize', label: 'Posterize', icon: LayoutGrid, min: 0, max: 100 },
   { key: 'pixelate', label: 'Pixelate', icon: Hash, min: 0, max: 100 },
   { key: 'scanLines', label: 'Scan Lines', icon: ScanLine, min: 0, max: 100 },
-  // Split Tone
-  { key: 'splitToneShadow', label: 'Shadow Hue', icon: Moon, min: -180, max: 180 },
-  { key: 'splitToneHighlight', label: 'Hi-light Hue', icon: Sunrise, min: -180, max: 180 },
 ];
 
 export default function AdjustmentsPanel({ adjustments, onChange }: Props) {

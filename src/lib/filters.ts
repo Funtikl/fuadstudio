@@ -1,205 +1,327 @@
-export type FilterCategory = 'Essentials' | 'Cinematic' | 'Film' | 'Vintage' | 'B&W' | 'Creative' | 'Magic';
+export type FilterCategory = 'Film' | 'Leica' | 'Hasselblad';
 
 export type Filter = {
   id: string;
   name: string;
   category: FilterCategory;
   css: string;
+  // Analog film effects
   grain?: number;
   vignette?: number;
   lightLeak?: number;
   dust?: number;
   halation?: number;
-  fade?: number;                 // shadow lift — film base fog
-  bloom?: number;                // highlight glow
-  tintOverlay?: string;         // subtle global color cast, e.g. 'rgba(255,230,200,0.08)'
-  shadowTint?: string;          // color tint applied to shadows via multiply blend
-  burnEdges?: number;           // aggressive colour-burn edge darkening (0–100)
-  chromaticAberration?: number; // RGB lens fringing strength (0–100)
-  softFocus?: number;           // dreamy soft focus glow (0–100)
-  filmBurn?: number;            // bottom-right warm light leak (0–100)
-  scanLines?: number;           // VHS/CRT horizontal scan lines (0–100)
+  fade?: number;
+  bloom?: number;
+  softFocus?: number;
+  filmBurn?: number;
+  scanLines?: number;
+  chromaticAberration?: number;
+  // Color science
+  tintOverlay?: string;
+  shadowTint?: string;
+  burnEdges?: number;
+  // Camera system signature effects
+  microContrast?: number;
+  highlightRolloff?: number;
+  portraitGlow?: number;
+  splitToneShadowHue?: number;
+  splitToneHighlightHue?: number;
 };
 
 export const FILTERS: Filter[] = [
-  // Essentials
-  { id: 'standard', name: 'Standard', category: 'Essentials', css: 'none' },
-  { id: 'vivid', name: 'Vivid', category: 'Essentials', css: 'contrast(1.1) saturate(1.3)' },
-  { id: 'muted', name: 'Muted', category: 'Essentials', css: 'contrast(0.9) saturate(0.7)' },
-  { id: 'bright', name: 'Bright', category: 'Essentials', css: 'brightness(1.15) contrast(1.05)' },
-  { id: 'dark', name: 'Dark', category: 'Essentials', css: 'brightness(0.85) contrast(1.1)' },
 
-  // Cinematic
-  { id: 'teal_orange', name: 'Teal & Orange', category: 'Cinematic', css: 'contrast(1.15) saturate(1.25) hue-rotate(-12deg) sepia(0.15) brightness(1.02)', vignette: 20 },
-  { id: 'moody', name: 'Moody', category: 'Cinematic', css: 'brightness(0.82) contrast(1.25) saturate(0.85) sepia(0.05)', vignette: 30, grain: 8 },
-  { id: 'cyberpunk', name: 'Cyberpunk', category: 'Cinematic', css: 'contrast(1.3) saturate(1.5) hue-rotate(30deg) brightness(0.9)', vignette: 15 },
-  { id: 'matrix', name: 'Matrix', category: 'Cinematic', css: 'contrast(1.2) saturate(1.2) hue-rotate(90deg) brightness(0.9)' },
+  // ─── FILM ───────────────────────────────────────────────────────────────────
 
-  // Film — refined color science for each stock
-
-  // Kodak Portra: soft pastels, lifted shadows, warm skin tones, low contrast, base fog
+  // Kodak Portra 160 — finest Portra grain, pastel palette, lifted shadows, beautiful skin
   { id: 'portra_160', name: 'Portra 160', category: 'Film',
-    css: 'sepia(0.06) contrast(0.91) saturate(1.08) hue-rotate(-3deg) brightness(1.04)',
-    grain: 12, vignette: 8, fade: 4,
-    tintOverlay: 'rgba(255, 235, 210, 0.06)' },
+    css: 'sepia(0.05) contrast(0.90) saturate(1.10) hue-rotate(-2deg) brightness(1.05)',
+    grain: 10, vignette: 10, fade: 5,
+    microContrast: 10, highlightRolloff: 18,
+    tintOverlay: 'rgba(255, 238, 215, 0.05)',
+    splitToneShadowHue: 30, splitToneHighlightHue: 40 },
+
+  // Kodak Portra 400 — the portrait standard, warm skin, pushed pastels
   { id: 'portra_400', name: 'Portra 400', category: 'Film',
-    css: 'sepia(0.10) contrast(0.94) saturate(1.12) hue-rotate(-4deg) brightness(1.06)',
-    grain: 22, vignette: 12, fade: 5,
-    tintOverlay: 'rgba(255, 230, 205, 0.07)' },
+    css: 'sepia(0.08) contrast(0.93) saturate(1.14) hue-rotate(-3deg) brightness(1.06)',
+    grain: 20, vignette: 14, fade: 6,
+    microContrast: 12, highlightRolloff: 20,
+    tintOverlay: 'rgba(255, 232, 208, 0.06)',
+    splitToneShadowHue: 28, splitToneHighlightHue: 38 },
+
+  // Kodak Portra 800 — pushed Portra, more grain, slightly magenta cast in shadows
   { id: 'portra_800', name: 'Portra 800', category: 'Film',
-    css: 'sepia(0.13) contrast(0.98) saturate(1.15) hue-rotate(-5deg) brightness(1.04)',
-    grain: 38, vignette: 18, fade: 6,
-    tintOverlay: 'rgba(255, 225, 200, 0.08)' },
+    css: 'sepia(0.10) contrast(0.96) saturate(1.16) hue-rotate(-4deg) brightness(1.04)',
+    grain: 36, vignette: 18, fade: 7,
+    microContrast: 14, highlightRolloff: 22,
+    tintOverlay: 'rgba(255, 225, 200, 0.07)',
+    splitToneShadowHue: 320, splitToneHighlightHue: 35 },
 
-  // Fuji Pro 400H: cool greens in shadows, soft, pastel, slightly underexposed look
-  { id: 'fuji_pro_400h', name: 'Fuji Pro 400H', category: 'Film',
-    css: 'sepia(0.03) contrast(0.92) saturate(1.04) hue-rotate(9deg) brightness(1.07)',
-    grain: 18, vignette: 8, fade: 3,
-    tintOverlay: 'rgba(205, 235, 218, 0.06)' },
+  // Fuji Pro 400H — cool greens in shadows, soft, pastel highlights, wedding film
+  { id: 'fuji_pro_400h', name: 'Pro 400H', category: 'Film',
+    css: 'sepia(0.02) contrast(0.91) saturate(1.06) hue-rotate(8deg) brightness(1.07)',
+    grain: 16, vignette: 10, fade: 4,
+    microContrast: 10, highlightRolloff: 15,
+    tintOverlay: 'rgba(210, 238, 222, 0.05)',
+    splitToneShadowHue: 160, splitToneHighlightHue: 42 },
 
-  // Fuji Superia: punchy consumer film, green-shifted shadows, warm highlights
+  // Fuji Superia 400 — punchy consumer, green-shifted shadows, warm highlights
   { id: 'superia_400', name: 'Superia 400', category: 'Film',
-    css: 'contrast(1.12) saturate(1.3) hue-rotate(6deg) sepia(0.06) brightness(0.98)',
-    grain: 32, vignette: 22, fade: 4 },
+    css: 'contrast(1.10) saturate(1.28) hue-rotate(5deg) sepia(0.05) brightness(0.99)',
+    grain: 30, vignette: 20, fade: 5,
+    microContrast: 16,
+    splitToneShadowHue: 145, splitToneHighlightHue: 30 },
 
-  // CineStill 800T: tungsten-balanced, heavy halation, teal shadows, warm highlights
+  // CineStill 800T — tungsten cinema stock, halation rings, teal shadows, red highlights
   { id: 'cinestill_800t', name: 'CineStill 800T', category: 'Film',
-    css: 'sepia(0.04) contrast(1.15) saturate(1.2) hue-rotate(-12deg) brightness(1.03)',
-    grain: 42, vignette: 25, lightLeak: 10, halation: 35, fade: 6,
-    tintOverlay: 'rgba(180, 215, 240, 0.07)' },
+    css: 'sepia(0.03) contrast(1.12) saturate(1.18) hue-rotate(-10deg) brightness(1.03)',
+    grain: 40, vignette: 24, lightLeak: 12, halation: 38, fade: 7,
+    microContrast: 20, highlightRolloff: 22,
+    tintOverlay: 'rgba(175, 210, 238, 0.06)',
+    splitToneShadowHue: 195, splitToneHighlightHue: -15 },
 
-  // CineStill 50D: daylight-balanced cinema film, neutral tones, fine grain
+  // CineStill 50D — daylight cinema film, balanced, fine grain, subtle halation
   { id: 'cinestill_50d', name: 'CineStill 50D', category: 'Film',
-    css: 'contrast(1.08) saturate(1.18) hue-rotate(-3deg) sepia(0.06) brightness(1.04)',
-    grain: 10, vignette: 15, halation: 15, fade: 3 },
+    css: 'contrast(1.07) saturate(1.15) hue-rotate(-2deg) sepia(0.04) brightness(1.04)',
+    grain: 8, vignette: 14, halation: 14, fade: 3,
+    microContrast: 18, highlightRolloff: 20 },
 
-  // Fuji Velvia 50: legendary slide film, ultra-saturated, deep blacks
+  // Fuji Velvia 50 — legendary landscape slide, ultra-saturated, deep blacks, vivid
   { id: 'velvia_50', name: 'Velvia 50', category: 'Film',
-    css: 'contrast(1.35) saturate(1.55) hue-rotate(-3deg) brightness(0.96)',
-    grain: 8, vignette: 28, fade: 2 },
+    css: 'contrast(1.32) saturate(1.52) hue-rotate(-2deg) brightness(0.97)',
+    grain: 6, vignette: 26, fade: 2,
+    microContrast: 24, highlightRolloff: 10 },
 
-  // Fuji Provia 100F: balanced slide film, accurate colors, slight saturation boost
+  // Fuji Provia 100F — balanced slide, accurate with mild saturation boost
   { id: 'provia_100f', name: 'Provia 100F', category: 'Film',
-    css: 'contrast(1.18) saturate(1.25) hue-rotate(3deg) brightness(1.03)',
-    grain: 10, vignette: 12, fade: 3 },
+    css: 'contrast(1.15) saturate(1.22) hue-rotate(2deg) brightness(1.03)',
+    grain: 8, vignette: 12, fade: 3,
+    microContrast: 18, highlightRolloff: 14 },
 
-  // Kodachrome: legendary warm tones, deep reds, punchy, classic look
+  // Kodachrome 64 — legendary warmth, deep reds/blues, high microcontrast, iconic grain
   { id: 'kodachrome', name: 'Kodachrome', category: 'Film',
-    css: 'sepia(0.13) contrast(1.25) saturate(1.22) hue-rotate(-9deg) brightness(0.97)',
-    grain: 18, vignette: 30, dust: 8, fade: 6,
-    tintOverlay: 'rgba(255, 210, 178, 0.08)' },
+    css: 'sepia(0.12) contrast(1.22) saturate(1.24) hue-rotate(-8deg) brightness(0.98)',
+    grain: 16, vignette: 28, dust: 8, fade: 6,
+    microContrast: 22, highlightRolloff: 16,
+    tintOverlay: 'rgba(255, 212, 180, 0.07)',
+    splitToneShadowHue: -10, splitToneHighlightHue: 28 },
 
-  // Kodak Ektar 100: ultra-saturated negative film, vivid reds and blues
+  // Kodak Ektar 100 — finest-grain color neg, ultra-vivid reds and blues
   { id: 'ektar_100', name: 'Ektar 100', category: 'Film',
-    css: 'contrast(1.18) saturate(1.5) hue-rotate(3deg) brightness(1.01)',
-    grain: 8, vignette: 18, fade: 2 },
+    css: 'contrast(1.16) saturate(1.48) hue-rotate(2deg) brightness(1.02)',
+    grain: 6, vignette: 16, fade: 2,
+    microContrast: 20, highlightRolloff: 12 },
 
-  // Kodak Gold 200: warm consumer film, golden tones, nostalgic
+  // Kodak Gold 200 — consumer warm film, nostalgic golden cast, medium grain
   { id: 'gold_200', name: 'Gold 200', category: 'Film',
-    css: 'sepia(0.20) contrast(1.08) saturate(1.22) hue-rotate(-13deg) brightness(1.06)',
-    grain: 30, vignette: 22, lightLeak: 8, fade: 7,
-    tintOverlay: 'rgba(255, 230, 175, 0.10)' },
+    css: 'sepia(0.18) contrast(1.06) saturate(1.20) hue-rotate(-12deg) brightness(1.06)',
+    grain: 28, vignette: 20, lightLeak: 8, fade: 8,
+    microContrast: 12, highlightRolloff: 16,
+    tintOverlay: 'rgba(255, 232, 178, 0.08)',
+    splitToneShadowHue: 25, splitToneHighlightHue: 45 },
 
-  // Kodak ColorPlus 200: budget warm film, heavy grain, muted but warm
+  // Kodak ColorPlus 200 — budget warm film, heavy grain, expired look
   { id: 'colorplus_200', name: 'ColorPlus 200', category: 'Film',
-    css: 'sepia(0.24) contrast(1.04) saturate(1.14) hue-rotate(-8deg) brightness(1.03)',
-    grain: 42, vignette: 28, dust: 5, fade: 9,
-    tintOverlay: 'rgba(255, 225, 183, 0.09)' },
+    css: 'sepia(0.22) contrast(1.02) saturate(1.12) hue-rotate(-6deg) brightness(1.04)',
+    grain: 40, vignette: 26, dust: 6, fade: 10,
+    microContrast: 8, highlightRolloff: 14,
+    tintOverlay: 'rgba(255, 228, 185, 0.08)' },
 
-  // Lomography 400: cross-processed, heavy vignette, saturated, unpredictable
+  // Lomography 400 — cross-processed, saturated, unpredictable, heavy vignette
   { id: 'lomo_400', name: 'Lomo 400', category: 'Film',
-    css: 'sepia(0.08) contrast(1.3) saturate(1.45) hue-rotate(12deg) brightness(1.03)',
-    grain: 48, vignette: 45, lightLeak: 35, dust: 15, fade: 5 },
+    css: 'sepia(0.06) contrast(1.28) saturate(1.42) hue-rotate(10deg) brightness(1.03)',
+    grain: 45, vignette: 42, lightLeak: 32, dust: 14, fade: 5,
+    microContrast: 22 },
 
-  // Agfa Vista: bold greens and blues, moderate grain
+  // Agfa Vista 200 — bold greens and blues, European color
   { id: 'agfa_vista', name: 'Agfa Vista', category: 'Film',
-    css: 'contrast(1.12) saturate(1.35) hue-rotate(8deg) sepia(0.04) brightness(1.0)',
-    grain: 28, vignette: 22, fade: 4 },
+    css: 'contrast(1.10) saturate(1.32) hue-rotate(6deg) sepia(0.03) brightness(1.01)',
+    grain: 26, vignette: 20, fade: 4,
+    microContrast: 16,
+    splitToneShadowHue: 170, splitToneHighlightHue: 30 },
 
-  // Polaroid 600: instant film, faded, low contrast, slight color cast, heavy vignette
+  // Polaroid 600 — instant film, faded, low contrast, yellow-green cast, heavy border
   { id: 'polaroid_600', name: 'Polaroid 600', category: 'Film',
-    css: 'sepia(0.12) contrast(0.86) saturate(1.05) hue-rotate(-4deg) brightness(1.08)',
-    grain: 30, vignette: 45, lightLeak: 20, dust: 25, fade: 12,
-    tintOverlay: 'rgba(240, 235, 210, 0.10)' },
+    css: 'sepia(0.10) contrast(0.84) saturate(1.04) hue-rotate(-3deg) brightness(1.09)',
+    grain: 28, vignette: 42, lightLeak: 18, dust: 22, fade: 14,
+    highlightRolloff: 22,
+    tintOverlay: 'rgba(242, 238, 215, 0.08)',
+    splitToneShadowHue: 55, splitToneHighlightHue: 42 },
 
-  // B&W Film stocks
+  // Ilford HP5 Plus — classic street B&W, wide latitude
   { id: 'ilford_hp5', name: 'Ilford HP5', category: 'Film',
-    css: 'grayscale(1) contrast(1.12) brightness(1.04)',
-    grain: 38, vignette: 18, fade: 3 },
+    css: 'grayscale(1) contrast(1.14) brightness(1.04)',
+    grain: 36, vignette: 16, fade: 4,
+    microContrast: 20, highlightRolloff: 14 },
+
+  // Ilford FP4 Plus — fine-grain, rich tonal range
   { id: 'ilford_fp4', name: 'Ilford FP4', category: 'Film',
-    css: 'grayscale(1) contrast(1.08) brightness(1.03)',
-    grain: 18, vignette: 12, fade: 2 },
-  { id: 'ilford_delta', name: 'Ilford Delta', category: 'Film',
-    css: 'grayscale(1) contrast(1.25) brightness(1.08)',
-    grain: 22, vignette: 22, fade: 2 },
+    css: 'grayscale(1) contrast(1.08) brightness(1.04)',
+    grain: 16, vignette: 12, fade: 3,
+    microContrast: 16, highlightRolloff: 16 },
+
+  // Ilford Delta 3200 — pushed high-ISO, dramatic, deep blacks
+  { id: 'ilford_delta', name: 'Delta 3200', category: 'Film',
+    css: 'grayscale(1) contrast(1.28) brightness(1.06)',
+    grain: 50, vignette: 24, fade: 3,
+    microContrast: 24, highlightRolloff: 10 },
+
+  // Kodak Tri-X 400 — gritty street legend, high acutance
   { id: 'tri_x_400', name: 'Tri-X 400', category: 'Film',
-    css: 'grayscale(1) contrast(1.35) brightness(0.96)',
-    grain: 52, vignette: 28, fade: 4 },
+    css: 'grayscale(1) contrast(1.32) brightness(0.97)',
+    grain: 48, vignette: 26, fade: 4,
+    microContrast: 26, highlightRolloff: 10 },
+
+  // Kodak T-Max 400 — sharper, finer-grain B&W than Tri-X
   { id: 'tmax_400', name: 'T-Max 400', category: 'Film',
-    css: 'grayscale(1) contrast(1.18) brightness(1.02)',
-    grain: 28, vignette: 18, fade: 2 },
+    css: 'grayscale(1) contrast(1.16) brightness(1.03)',
+    grain: 24, vignette: 16, fade: 3,
+    microContrast: 22, highlightRolloff: 16 },
+
+  // Fuji Neopan Acros 100 — finest B&W grain, smooth tones
   { id: 'neopan_100', name: 'Neopan 100', category: 'Film',
-    css: 'grayscale(1) contrast(1.12) brightness(1.06)',
-    grain: 12, vignette: 12, fade: 2 },
+    css: 'grayscale(1) contrast(1.10) brightness(1.06)',
+    grain: 10, vignette: 10, fade: 2,
+    microContrast: 16, highlightRolloff: 14 },
 
-  // Vintage
-  { id: 'retro', name: 'Retro', category: 'Vintage', css: 'contrast(0.85) saturate(0.8) sepia(0.4) hue-rotate(-10deg)', grain: 20, vignette: 15 },
-  { id: '1970s', name: '1970s', category: 'Vintage', css: 'contrast(0.9) saturate(0.7) sepia(0.6)', grain: 25, vignette: 20 },
-  { id: 'polaroid', name: 'Polaroid', category: 'Vintage', css: 'contrast(1.1) saturate(1.2) sepia(0.3) brightness(1.1)', grain: 15, vignette: 35 },
-  { id: 'sepia_classic', name: 'Sepia', category: 'Vintage', css: 'sepia(1) contrast(0.9)', grain: 30, dust: 15 },
-  { id: 'faded', name: 'Faded', category: 'Vintage', css: 'contrast(0.7) brightness(1.1) saturate(0.8)', grain: 15, vignette: 10 },
 
-  // B&W
-  { id: 'classic_bw', name: 'Classic B&W', category: 'B&W', css: 'grayscale(1)', grain: 10 },
-  { id: 'noir', name: 'Noir', category: 'B&W', css: 'grayscale(1) contrast(1.5) brightness(0.9)', grain: 15, vignette: 40 },
-  { id: 'high_contrast', name: 'High Contrast', category: 'B&W', css: 'grayscale(1) contrast(1.3)' },
-  { id: 'washed_bw', name: 'Washed', category: 'B&W', css: 'grayscale(1) contrast(0.7) brightness(1.2)' },
-  { id: 'silver', name: 'Silver', category: 'B&W', css: 'grayscale(1) contrast(1.1) brightness(1.1)', grain: 8 },
+  // ─── LEICA ──────────────────────────────────────────────────────────────────
+  // Xiaomi/Leica color science + M-system lens rendering signatures
 
-  // Creative
-  { id: 'dreamy', name: 'Dreamy', category: 'Creative', css: 'blur(1px) contrast(0.9) brightness(1.1) saturate(1.2)' },
-  { id: 'invert', name: 'Invert', category: 'Creative', css: 'invert(1) hue-rotate(180deg)' },
-  { id: 'neon', name: 'Neon', category: 'Creative', css: 'contrast(1.5) saturate(2) hue-rotate(45deg)' },
-  { id: 'thermal', name: 'Thermal', category: 'Creative', css: 'invert(1) hue-rotate(270deg) saturate(3) contrast(1.5)' },
-  { id: 'duotone', name: 'Duotone', category: 'Creative', css: 'grayscale(1) sepia(1) hue-rotate(200deg) saturate(3) contrast(1.2)' },
+  // Leica Authentic — faithful, understated, no enhanced saturation (Xiaomi 12S/13/14 Ultra SOOC)
+  { id: 'leica_authentic', name: 'Authentic', category: 'Leica',
+    css: 'contrast(1.04) saturate(0.94) brightness(1.02)',
+    grain: 5, vignette: 10, fade: 4,
+    microContrast: 40, highlightRolloff: 30,
+    tintOverlay: 'rgba(252, 248, 240, 0.03)',
+    splitToneShadowHue: 220, splitToneHighlightHue: 30 },
 
-  // Magic — maximum impact, beautiful presets
-  { id: 'golden_hour', name: 'Golden Hour', category: 'Magic',
-    css: 'sepia(0.48) contrast(1.25) saturate(1.7) hue-rotate(-24deg) brightness(1.20)',
-    grain: 24, vignette: 42, lightLeak: 58, fade: 10, halation: 35,
-    chromaticAberration: 18, softFocus: 18, filmBurn: 25,
-    shadowTint: 'rgba(160, 60, 0, 0.28)',
-    burnEdges: 28,
-    tintOverlay: 'rgba(255, 130, 20, 0.24)' },
+  // Leica Vibrant — Xiaomi/Leica "Vibrant" mode: punchy but not garish, warm highlight bias
+  { id: 'leica_vibrant', name: 'Vibrant', category: 'Leica',
+    css: 'contrast(1.10) saturate(1.16) brightness(1.03) hue-rotate(-2deg)',
+    grain: 6, vignette: 14, fade: 3,
+    microContrast: 42, highlightRolloff: 22,
+    tintOverlay: 'rgba(255, 246, 232, 0.04)',
+    splitToneShadowHue: 205, splitToneHighlightHue: 35 },
 
-  { id: 'velvet', name: 'Velvet', category: 'Magic',
-    css: 'contrast(0.62) saturate(0.50) brightness(1.22) sepia(0.20)',
-    grain: 22, vignette: 22, fade: 32, bloom: 45, softFocus: 35,
-    shadowTint: 'rgba(185, 130, 200, 0.22)',
-    burnEdges: 22,
-    tintOverlay: 'rgba(255, 190, 240, 0.22)' },
+  // Leica M Classic — M rangefinder street character, slight cool bias
+  { id: 'leica_m_classic', name: 'M Classic', category: 'Leica',
+    css: 'contrast(1.08) saturate(0.92) brightness(1.01)',
+    grain: 8, vignette: 16, fade: 4,
+    microContrast: 44, highlightRolloff: 24,
+    tintOverlay: 'rgba(248, 246, 240, 0.03)',
+    splitToneShadowHue: 215, splitToneHighlightHue: 30,
+    shadowTint: 'rgba(35, 45, 85, 0.04)' },
 
-  { id: 'celestial', name: 'Celestial', category: 'Magic',
-    css: 'contrast(1.38) saturate(1.72) hue-rotate(28deg) brightness(1.20)',
-    grain: 16, vignette: 45, bloom: 48, halation: 28,
-    chromaticAberration: 28, softFocus: 12,
-    shadowTint: 'rgba(20, 40, 200, 0.32)',
-    burnEdges: 40,
-    tintOverlay: 'rgba(90, 140, 255, 0.26)' },
+  // Leica Summilux — f/1.4 character: creamy bokeh, warm microcontrast
+  { id: 'leica_summilux', name: 'Summilux', category: 'Leica',
+    css: 'contrast(1.12) saturate(1.02) brightness(1.0) sepia(0.02)',
+    grain: 6, vignette: 22, fade: 4, softFocus: 6,
+    microContrast: 38, highlightRolloff: 28,
+    splitToneShadowHue: 218, splitToneHighlightHue: 32 },
 
-  { id: 'rose_gold', name: 'Rose Gold', category: 'Magic',
-    css: 'sepia(0.35) contrast(1.14) saturate(1.68) hue-rotate(-35deg) brightness(1.14)',
-    grain: 18, vignette: 35, lightLeak: 28, fade: 12, softFocus: 14, filmBurn: 15,
-    chromaticAberration: 15,
-    shadowTint: 'rgba(190, 60, 90, 0.26)',
-    burnEdges: 28,
-    tintOverlay: 'rgba(255, 110, 125, 0.24)' },
+  // Leica APO-Summicron — clinical resolution king, maximum microcontrast
+  { id: 'leica_apo', name: 'APO-Summicron', category: 'Leica',
+    css: 'contrast(1.06) saturate(0.98) brightness(1.01)',
+    grain: 3, vignette: 6, fade: 3,
+    microContrast: 50, highlightRolloff: 34,
+    splitToneShadowHue: 218, splitToneHighlightHue: 26,
+    shadowTint: 'rgba(30, 48, 105, 0.03)' },
 
-  { id: 'dusk', name: 'Dusk', category: 'Magic',
-    css: 'sepia(0.10) contrast(1.58) saturate(0.60) hue-rotate(35deg) brightness(0.78)',
-    grain: 48, vignette: 62, fade: 6, scanLines: 10,
-    chromaticAberration: 12,
-    shadowTint: 'rgba(50, 20, 190, 0.35)',
-    burnEdges: 50,
-    tintOverlay: 'rgba(70, 50, 210, 0.26)' },
+  // Leica Noctilux — f/0.95: halation glow, vignette, painterly separation, legend
+  { id: 'leica_noctilux', name: 'Noctilux', category: 'Leica',
+    css: 'contrast(1.16) saturate(1.04) brightness(0.97) sepia(0.03)',
+    grain: 16, vignette: 36, fade: 5, halation: 24, bloom: 16, softFocus: 8,
+    microContrast: 34, highlightRolloff: 40,
+    splitToneShadowHue: 228, splitToneHighlightHue: 24,
+    shadowTint: 'rgba(20, 28, 75, 0.08)' },
+
+  // Leica SL2 — modern mirrorless, highest resolving, clean warm neutral
+  { id: 'leica_sl2', name: 'SL2', category: 'Leica',
+    css: 'contrast(1.05) saturate(1.02) brightness(1.02)',
+    grain: 3, vignette: 10, fade: 3,
+    microContrast: 36, highlightRolloff: 32,
+    splitToneShadowHue: 222, splitToneHighlightHue: 28,
+    tintOverlay: 'rgba(250, 248, 242, 0.02)' },
+
+  // Leica Monochrom — dedicated B&W sensor: no Bayer, pure luminance, razor sharpness
+  { id: 'leica_monochrom', name: 'Monochrom', category: 'Leica',
+    css: 'grayscale(1) contrast(1.14) brightness(1.02)',
+    grain: 20, vignette: 18, fade: 5,
+    microContrast: 54, highlightRolloff: 20 },
+
+  // Leica Q3 — compact 28mm f/1.7 Summilux: wide, punchy, street-friendly
+  { id: 'leica_q3', name: 'Q3', category: 'Leica',
+    css: 'contrast(1.07) saturate(1.04) brightness(1.02) hue-rotate(-1deg)',
+    grain: 4, vignette: 18, fade: 3,
+    microContrast: 40, highlightRolloff: 28,
+    tintOverlay: 'rgba(252, 248, 240, 0.03)',
+    splitToneShadowHue: 214, splitToneHighlightHue: 32 },
+
+  // Leica Portrait — skin-tone optimized, smooth rolloff, warm portrait glow
+  { id: 'leica_portrait', name: 'Portrait', category: 'Leica',
+    css: 'contrast(1.02) saturate(1.05) brightness(1.04) sepia(0.02)',
+    grain: 5, vignette: 20, fade: 5, softFocus: 10,
+    microContrast: 30, highlightRolloff: 40,
+    portraitGlow: 22,
+    tintOverlay: 'rgba(255, 246, 236, 0.05)',
+    splitToneShadowHue: 210, splitToneHighlightHue: 36 },
+
+
+  // ─── HASSELBLAD ─────────────────────────────────────────────────────────────
+  // OnePlus/Hasselblad partnership + medium-format digital color science
+
+  // Hasselblad Natural — faithful medium-format rendering (OnePlus 10 Pro/11/12 SOOC)
+  { id: 'hassy_natural', name: 'Natural', category: 'Hasselblad',
+    css: 'contrast(1.04) saturate(1.02) brightness(1.01)',
+    grain: 3, vignette: 8, fade: 3,
+    microContrast: 32, highlightRolloff: 34,
+    tintOverlay: 'rgba(248, 250, 252, 0.02)',
+    splitToneShadowHue: 228, splitToneHighlightHue: 32 },
+
+  // Hasselblad Portrait — medium-format portrait: widest highlight rolloff, warm glow
+  { id: 'hassy_portrait', name: 'Portrait', category: 'Hasselblad',
+    css: 'contrast(1.02) saturate(1.05) brightness(1.04) sepia(0.02)',
+    grain: 3, vignette: 18, fade: 5, softFocus: 12,
+    microContrast: 28, highlightRolloff: 42,
+    portraitGlow: 24,
+    tintOverlay: 'rgba(252, 250, 244, 0.04)',
+    splitToneShadowHue: 222, splitToneHighlightHue: 36 },
+
+  // Hasselblad Landscape — outdoor mode: richened midtones, polarized sky, vivid greens
+  { id: 'hassy_landscape', name: 'Landscape', category: 'Hasselblad',
+    css: 'contrast(1.10) saturate(1.20) hue-rotate(2deg) brightness(0.99)',
+    grain: 4, vignette: 20, fade: 2,
+    microContrast: 38, highlightRolloff: 22,
+    splitToneShadowHue: 205, splitToneHighlightHue: 40 },
+
+  // Hasselblad X2D 100C — 100MP medium format: extreme resolving, neutral, clinical
+  { id: 'hassy_x2d', name: 'X2D 100C', category: 'Hasselblad',
+    css: 'contrast(1.05) saturate(1.04) brightness(1.01)',
+    grain: 2, vignette: 8, fade: 2,
+    microContrast: 36, highlightRolloff: 36,
+    splitToneShadowHue: 218, splitToneHighlightHue: 30,
+    tintOverlay: 'rgba(250, 250, 252, 0.02)' },
+
+  // Hasselblad 503CW Studio — classic medium format studio: balanced, timeless, beautiful
+  { id: 'hassy_studio', name: '503CW Studio', category: 'Hasselblad',
+    css: 'contrast(1.06) saturate(0.96) brightness(1.04)',
+    grain: 3, vignette: 6, fade: 2,
+    microContrast: 34, highlightRolloff: 44,
+    splitToneShadowHue: 222, splitToneHighlightHue: 30 },
+
+  // Hasselblad Monochrome — CFV 100C achromatic digital back, brutal resolution
+  { id: 'hassy_mono', name: 'Monochrome', category: 'Hasselblad',
+    css: 'grayscale(1) contrast(1.10) brightness(1.03)',
+    grain: 4, vignette: 10, fade: 3,
+    microContrast: 44, highlightRolloff: 32 },
+
+  // Hasselblad Chrome — rich colour, slight cool shadow, film-like rendering
+  { id: 'hassy_chrome', name: 'Chrome', category: 'Hasselblad',
+    css: 'contrast(1.12) saturate(1.10) brightness(0.99) hue-rotate(-2deg)',
+    grain: 5, vignette: 14, fade: 3,
+    microContrast: 40, highlightRolloff: 26,
+    splitToneShadowHue: 220, splitToneHighlightHue: 30,
+    shadowTint: 'rgba(28, 38, 88, 0.05)' },
+
 ];

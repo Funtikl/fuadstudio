@@ -93,6 +93,12 @@ export default function PhotoEditor({ imageSrc, initialFilterId, initialFilterIn
       softFocus: selectedFilter?.softFocus ?? 0,
       filmBurn: selectedFilter?.filmBurn ?? 0,
       scanLines: selectedFilter?.scanLines ?? 0,
+      // Camera system signature
+      microContrast: selectedFilter?.microContrast ?? 0,
+      highlightRolloff: selectedFilter?.highlightRolloff ?? 0,
+      portraitGlow: selectedFilter?.portraitGlow ?? 0,
+      splitToneShadow: selectedFilter?.splitToneShadowHue ?? 0,
+      splitToneHighlight: selectedFilter?.splitToneHighlightHue ?? 0,
     };
     commitState({ filterId, filterIntensity: 100, adjustments: newAdjustments });
   };
@@ -195,6 +201,59 @@ export default function PhotoEditor({ imageSrc, initialFilterId, initialFilterIn
           r.data[i+3] = o.data[i+3];
         }
         ctx.putImageData(r, 0, 0);
+      }
+
+      // Micro-Contrast (Leica/Hasselblad signature: S-curve on luminance, 3D pop)
+      if (adjustments.microContrast > 0) {
+        const strength = (adjustments.microContrast / 100) * 0.38;
+        const d = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < d.data.length; i += 4) {
+          for (let ch = 0; ch < 3; ch++) {
+            const v = d.data[i + ch] / 255;
+            // Midtone-focused S-curve: boosts contrast around 0.5 while preserving shadows/highlights
+            const curved = v + strength * (v - 0.5) * (1 - Math.pow(Math.abs(v - 0.5) * 1.8, 1.4));
+            d.data[i + ch] = Math.min(255, Math.max(0, curved * 255));
+          }
+        }
+        ctx.putImageData(d, 0, 0);
+      }
+
+      // Highlight Rolloff (gentle shoulder compression — film/Leica character)
+      if (adjustments.highlightRolloff > 0) {
+        const rolloff = (adjustments.highlightRolloff / 100) * 0.72;
+        const threshold = 0.72; // start compressing above 72% luminance
+        const range = 1 - threshold;
+        const d = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < d.data.length; i += 4) {
+          for (let ch = 0; ch < 3; ch++) {
+            const v = d.data[i + ch] / 255;
+            if (v > threshold) {
+              const excess = v - threshold;
+              // Smooth shoulder: exponential curve that gently compresses into white
+              const compressed = threshold + range * (1 - Math.exp(-excess / range * (1.8 - rolloff * 1.2)));
+              d.data[i + ch] = Math.min(255, Math.max(0, compressed * 255));
+            }
+          }
+        }
+        ctx.putImageData(d, 0, 0);
+      }
+
+      // Portrait Glow (warm skin-tone enhancing glow — Leica/Hasselblad portrait mode)
+      if (adjustments.portraitGlow > 0) {
+        const amt = adjustments.portraitGlow / 100;
+        const pgc = document.createElement('canvas'); pgc.width = canvas.width; pgc.height = canvas.height;
+        const pgx = pgc.getContext('2d')!;
+        pgx.filter = `blur(${8 + amt * 18}px) brightness(1.2) saturate(1.3)`;
+        pgx.drawImage(canvas, 0, 0); pgx.filter = 'none';
+        // Warm tint overlay on the glow
+        pgx.globalCompositeOperation = 'multiply';
+        pgx.fillStyle = `rgba(255, 220, 170, ${0.3 + amt * 0.2})`;
+        pgx.fillRect(0, 0, pgc.width, pgc.height);
+        pgx.globalCompositeOperation = 'source-over';
+        ctx.globalCompositeOperation = 'screen';
+        ctx.globalAlpha = amt * 0.32;
+        ctx.drawImage(pgc, 0, 0);
+        ctx.globalAlpha = 1.0; ctx.globalCompositeOperation = 'source-over';
       }
 
       // Posterize (colour level reduction)
@@ -522,6 +581,15 @@ export default function PhotoEditor({ imageSrc, initialFilterId, initialFilterIn
             <div className="absolute inset-0 pointer-events-none mix-blend-screen" style={{ backgroundColor: `rgba(${hueToRgb(adjustments.splitToneHighlight)}, 0.15)` }} />
           )}
 
+          {/* Portrait Glow — warm skin-tone enhancing glow */}
+          {!isComparing && adjustments.portraitGlow > 0 && (
+            <div className="absolute inset-0 pointer-events-none mix-blend-screen" style={{
+              backdropFilter: `blur(${(adjustments.portraitGlow / 100) * 18}px) brightness(1.2) saturate(1.3)`,
+              backgroundColor: `rgba(255, 210, 155, ${(adjustments.portraitGlow / 100) * 0.10})`,
+              opacity: (adjustments.portraitGlow / 100) * 0.32
+            }} />
+          )}
+
           {/* Soft Focus — dreamy screen-blended glow */}
           {!isComparing && adjustments.softFocus > 0 && (
             <div className="absolute inset-0 pointer-events-none mix-blend-screen" style={{ backdropFilter: `blur(${(adjustments.softFocus / 100) * 14}px) brightness(1.12)`, opacity: (adjustments.softFocus / 100) * 0.48, background: 'rgba(255,255,255,0.04)' }} />
@@ -596,7 +664,7 @@ export default function PhotoEditor({ imageSrc, initialFilterId, initialFilterIn
         </div>
         <div className="h-72 relative">
           {activeTab === 'presets' ? (
-            <FilterCarousel activeFilterId={activeFilterId} onSelectFilter={handleFilterSelect} previewImage={imageSrc} filterIntensity={filterIntensity} onIntensityChange={handleIntensityChange} />
+            <FilterCarousel activeFilterId={activeFilterId} onSelectFilter={handleFilterSelect} previewImage={imageSrc} filterIntensity={filterIntensity} onIntensityChange={handleIntensityChange} adjustments={adjustments} onAdjustmentChange={handleAdjustmentChange} />
           ) : (
             <AdjustmentsPanel adjustments={adjustments} onChange={handleAdjustmentChange} />
           )}
