@@ -191,11 +191,11 @@ export default function PhotoEditor({ imageSrc, initialFilterId, initialFilterIn
         const amt = adjustments.detail / 100;
         const tmp = document.createElement('canvas'); tmp.width = canvas.width; tmp.height = canvas.height;
         const t = tmp.getContext('2d')!;
-        t.filter = `blur(${3 + amt * 2}px)`; t.drawImage(canvas, 0, 0); t.filter = 'none';
+        t.filter = `blur(${2 + amt * 3}px)`; t.drawImage(canvas, 0, 0); t.filter = 'none';
         const o = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const b = t.getImageData(0, 0, canvas.width, canvas.height);
         const r = ctx.createImageData(canvas.width, canvas.height);
-        const str = amt * 0.8;
+        const str = amt * 2.2;
         for (let i = 0; i < o.data.length; i += 4) {
           for (let ch = 0; ch < 3; ch++) { const d = o.data[i+ch] - b.data[i+ch]; r.data[i+ch] = Math.min(255, Math.max(0, o.data[i+ch] + d * str)); }
           r.data[i+3] = o.data[i+3];
@@ -258,7 +258,7 @@ export default function PhotoEditor({ imageSrc, initialFilterId, initialFilterIn
 
       // Posterize (colour level reduction)
       if (adjustments.posterize > 0) {
-        const levels = Math.max(2, Math.round(16 - (adjustments.posterize / 100) * 14));
+        const levels = Math.max(2, Math.round(32 - (adjustments.posterize / 100) * 30));
         const d = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const step = 255 / (levels - 1);
         for (let i = 0; i < d.data.length; i += 4) {
@@ -309,7 +309,7 @@ export default function PhotoEditor({ imageSrc, initialFilterId, initialFilterIn
 
       // Chromatic Aberration (true RGB channel split)
       if (adjustments.chromaticAberration > 0) {
-        const shift = Math.round(canvas.width * (adjustments.chromaticAberration / 100) * 0.006);
+        const shift = Math.round(canvas.width * (adjustments.chromaticAberration / 100) * 0.016);
         if (shift > 0) {
           const o = ctx.getImageData(0, 0, canvas.width, canvas.height);
           const r = ctx.createImageData(canvas.width, canvas.height);
@@ -328,7 +328,7 @@ export default function PhotoEditor({ imageSrc, initialFilterId, initialFilterIn
       // Dispersion (radial prismatic RGB spread)
       if (adjustments.dispersion > 0) {
         const amt = adjustments.dispersion / 100;
-        const maxShift = Math.round(canvas.width * amt * 0.008);
+        const maxShift = Math.round(canvas.width * amt * 0.022);
         if (maxShift > 0) {
           const cx2 = canvas.width / 2, cy2 = canvas.height / 2;
           const o = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -482,7 +482,7 @@ export default function PhotoEditor({ imageSrc, initialFilterId, initialFilterIn
 
       // Pixelate (last — pixelates everything including effects)
       if (adjustments.pixelate > 0) {
-        const blockSize = Math.max(2, Math.round((adjustments.pixelate / 100) * 30));
+        const blockSize = Math.max(3, Math.round((adjustments.pixelate / 100) * 50));
         const w = Math.ceil(canvas.width / blockSize), h = Math.ceil(canvas.height / blockSize);
         const tc = document.createElement('canvas'); tc.width = w; tc.height = h;
         const tx = tc.getContext('2d')!;
