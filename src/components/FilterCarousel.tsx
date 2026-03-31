@@ -60,6 +60,7 @@ function MiniSlider({
   onCommit,
   onReset,
 }: {
+  key?: React.Key;
   label: string;
   icon: React.ElementType;
   value: number;

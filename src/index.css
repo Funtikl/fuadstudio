@@ -8,123 +8,120 @@
 
 /* ── Global touch polish ─────────────────────────────────────────── */
 
-/* Kill the blue highlight flash on every tap */
 *, *::before, *::after {
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
 }
 
-/* Buttons: prevent double-tap zoom, keep fast tap response */
 button, a, label {
   touch-action: manipulation;
   cursor: pointer;
 }
 
-/* Smooth font rendering */
+html, body, #root {
+  overscroll-behavior: none;
+  overflow: hidden;
+  height: 100%;
+  height: 100dvh;
+}
+
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: #030303;
+  color: white;
 }
 
 /* ── Scrollbars ──────────────────────────────────────────────────── */
 
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
+.no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
-  /* iOS momentum scroll */
   -webkit-overflow-scrolling: touch;
 }
 
-/* ── Scroll containers: contain overscroll so body doesn't bounce ── */
-.scroll-x-contain {
-  overscroll-behavior-x: contain;
-}
-.scroll-y-contain {
-  overscroll-behavior-y: contain;
-}
+.scroll-x-contain { overscroll-behavior-x: contain; }
+.scroll-y-contain { overscroll-behavior-y: contain; }
 
 /* ── Glass panel utility ─────────────────────────────────────────── */
 .glass-panel {
   @apply bg-zinc-900/70 backdrop-blur-xl border border-white/10;
 }
 
-/* ── Range inputs ─────────────────────────────────────────────────── */
+/* ── Range inputs ────────────────────────────────────────────────── */
 
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
-  /* Allow horizontal drag without triggering vertical page scroll */
   touch-action: pan-y;
   cursor: grab;
 }
-
-input[type="range"]:active {
-  cursor: grabbing;
-}
-
-input[type="range"]:focus {
-  outline: none;
-}
+input[type="range"]:active { cursor: grabbing; }
+input[type="range"]:focus { outline: none; }
 
 /* Track */
 input[type="range"]::-webkit-slider-runnable-track {
   width: 100%;
-  height: 4px;
+  height: 3px;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 2px;
 }
 input[type="range"]::-moz-range-track {
-  height: 4px;
-  background: rgba(255, 255, 255, 0.12);
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 2px;
 }
 
-/* Thumb — mobile first: large enough to hit easily */
+/* Thumb */
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  height: 28px;
-  width: 28px;
+  height: 26px;
+  width: 26px;
   border-radius: 50%;
   background: #ffffff;
   cursor: grab;
-  margin-top: -12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
-  border: 1.5px solid rgba(255, 255, 255, 0.15);
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  margin-top: -11.5px;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.1);
+  border: none;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 input[type="range"]::-moz-range-thumb {
-  height: 28px;
-  width: 28px;
+  height: 26px;
+  width: 26px;
   border-radius: 50%;
   background: #ffffff;
   cursor: grab;
-  border: 1.5px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
-  transition: transform 0.12s ease;
+  border: none;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s ease;
 }
 
 input[type="range"]::-webkit-slider-thumb:active {
-  transform: scale(1.2);
+  transform: scale(1.25);
   cursor: grabbing;
-  box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.12), 0 2px 12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.08), 0 2px 12px rgba(0, 0, 0, 0.5);
 }
 input[type="range"]::-moz-range-thumb:active {
-  transform: scale(1.2);
+  transform: scale(1.25);
 }
 
-/* Desktop: slightly smaller thumb */
+/* Desktop: smaller thumb */
 @media (min-width: 1024px) {
   input[type="range"]::-webkit-slider-thumb {
-    height: 22px;
-    width: 22px;
-    margin-top: -9px;
+    height: 20px;
+    width: 20px;
+    margin-top: -8.5px;
   }
   input[type="range"]::-webkit-slider-runnable-track {
-    height: 5px;
+    height: 4px;
   }
+}
+
+/* ── Smooth transitions for layout shifts ────────────────────────── */
+.transition-smooth {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }

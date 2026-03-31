@@ -73,10 +73,10 @@ export default function PhotoEditor({
     if (draftState) return; // skip during live slider drag — CSS preview is fast enough
     const version = ++renderVersionRef.current;
     const previewCanvas = document.createElement('canvas');
-    renderToCanvas(imageSrc, activeFilter, filterIntensity, adjustments, previewCanvas, 800)
+    renderToCanvas(imageSrc, activeFilter, filterIntensity, adjustments, previewCanvas, 480)
       .then(() => {
         if (renderVersionRef.current !== version) return; // superseded by newer commit
-        setRenderedPreview(previewCanvas.toDataURL('image/jpeg', 0.88));
+        setRenderedPreview(previewCanvas.toDataURL('image/jpeg', 0.92));
       })
       .catch(() => {}); // silently fall back to CSS preview
   // eslint-disable-next-line react-hooks/exhaustive-deps

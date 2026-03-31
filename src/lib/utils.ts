@@ -1,30 +1,58 @@
 import { Adjustments } from '../types';
 
+/**
+ * Build a CSS filter string for fast live-drag preview.
+ * This approximates the pixel-based render in render.ts — not exact but close.
+ */
 export function getAdjustmentCss(adj: Adjustments): string {
-  // Exposure drives brightness + contrast together
-  const b = 100 + adj.brightness + (adj.exposure * 0.5) + (adj.shadows * 0.3) + (adj.highlights * 0.2);
-  const c = 100 + adj.contrast + (adj.exposure * 0.2) - (adj.fade * 0.2)
-    + (adj.highlights * 0.3) - (adj.shadows * 0.1)
-    + (adj.clarity * 0.3) + (adj.dehaze * 0.2)
-    + (adj.sharpness * 0.12) + (adj.detail * 0.06)
-    // Micro-contrast shows as a midtone contrast boost in preview
-    + (adj.microContrast * 0.10);
+  // Exposure → brightness (approx 2^stops mapping)
+  const expMul = Math.pow(2, adj.exposure / 50) * 100; // as %
 
-  const s = 100 + adj.saturation + (adj.vibrance * 0.8) + (adj.dehaze * 0.15);
+  // Brightness: direct
+  const brightPct = 100 + adj.brightness * 0.8;
 
-  const sepia = adj.sepia + (adj.warmth > 0 ? adj.warmth * 0.5 : 0);
-  const hue = (adj.warmth < 0 ? adj.warmth * 0.3 : 0) + (adj.tint * 0.5) + adj.hue;
-  const blur = adj.blur * 0.1;
+  // Combine into a single brightness multiplier
+  const finalBrightness = (expMul / 100) * (brightPct / 100) * 100;
+
+  // Contrast
+  const contrast = 100 + adj.contrast
+    + adj.clarity * 0.35
+    + adj.microContrast * 0.12
+    + adj.dehaze * 0.25;
+
+  // Saturation
+  const saturation = 100 + adj.saturation + adj.vibrance * 0.75 + adj.dehaze * 0.18;
+
+  // Warmth → sepia + hue-rotate
+  const sepia = adj.sepia + (adj.warmth > 0 ? adj.warmth * 0.45 : 0);
+
+  // Hue: warmth cool side + tint + direct hue
+  const hue = (adj.warmth < 0 ? adj.warmth * 0.28 : 0) + adj.tint * 0.45 + adj.hue;
+
+  // Blur
+  const blur = adj.blur * 0.12;
+
   const grayscale = adj.grayscale;
   const invert = adj.invert;
 
-  const dehazeB = adj.dehaze > 0 ? adj.dehaze * 0.1 : 0;
-  // Highlight rolloff: gently pull down brightness on high values (CSS proxy)
-  const rolloffB = -(adj.highlightRolloff * 0.025);
+  // Highlight rolloff: small brightness reduction
+  const rolloffB = -(adj.highlightRolloff * 0.022);
 
-  const finalB = b + dehazeB + rolloffB;
+  // Shadow lift approximation: slight brightness boost for fade
+  const fadeB = adj.fade * 0.06;
 
-  return `brightness(${finalB}%) contrast(${c}%) saturate(${s}%) sepia(${sepia}%) hue-rotate(${hue}deg) grayscale(${grayscale}%) invert(${invert}%) blur(${blur}px)`;
+  const b = finalBrightness + rolloffB + fadeB;
+
+  return [
+    `brightness(${b.toFixed(2)}%)`,
+    `contrast(${contrast.toFixed(1)}%)`,
+    `saturate(${saturation.toFixed(1)}%)`,
+    sepia > 0 ? `sepia(${sepia.toFixed(1)}%)` : '',
+    hue !== 0 ? `hue-rotate(${hue.toFixed(1)}deg)` : '',
+    grayscale > 0 ? `grayscale(${grayscale.toFixed(1)}%)` : '',
+    invert > 0 ? `invert(${invert.toFixed(1)}%)` : '',
+    blur > 0 ? `blur(${blur.toFixed(2)}px)` : '',
+  ].filter(Boolean).join(' ') || 'none';
 }
 
 /** Convert hue angle (degrees) to "r, g, b" string for CSS rgba(). */

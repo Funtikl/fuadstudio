@@ -6,7 +6,9 @@
       "Bash(npm install:*)",
       "Bash(npx vite:*)",
       "mcp__Claude_Preview__preview_start",
-      "Bash(find /Users/fuadrustamzade/Code/fuads-studio -name sw.js -o -name service-worker.*)"
+      "Bash(find /Users/fuadrustamzade/Code/fuads-studio -name sw.js -o -name service-worker.*)",
+      "Read(//Users/fuadrustamzade/Code/**)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
