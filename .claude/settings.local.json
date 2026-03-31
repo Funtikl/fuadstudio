@@ -5,7 +5,8 @@
       "Bash(npm run:*)",
       "Bash(npm install:*)",
       "Bash(npx vite:*)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(find /Users/fuadrustamzade/Code/fuads-studio -name sw.js -o -name service-worker.*)"
     ]
   }
 }
