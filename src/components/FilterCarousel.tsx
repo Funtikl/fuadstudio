@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, memo } from "react";
+import React, { useState, useMemo, useCallback, memo, useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { FILTERS, FilterCategory } from "../lib/filters";
 import { Adjustments } from "../types";
@@ -40,6 +40,45 @@ const QUICK_PARAMS: {
   { key: "chromaticAberration",  label: "CA",      icon: Aperture,    min: 0, max: 100 },
 ];
 
+// ─── useLocalSlider: decouples visual from React prop cycle ──────────────────
+// Returns [localVal, pct, handlers]. Visual updates happen before rAF batches
+// the parent notification — thumb is always instant.
+function useLocalSlider(
+  value: number,
+  min: number,
+  max: number,
+  onChange: (v: number) => void,
+  onCommit: (v: number) => void,
+) {
+  const [local, setLocal] = useState(value);
+  const dragging = useRef(false);
+  const raf      = useRef(0);
+
+  // Sync from parent when not dragging (filter switch, undo, etc.)
+  useEffect(() => {
+    if (!dragging.current) setLocal(value);
+  }, [value]);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = parseInt(e.target.value);
+    dragging.current = true;
+    setLocal(v);                            // Instant visual
+    cancelAnimationFrame(raf.current);
+    raf.current = requestAnimationFrame(() => onChange(v)); // Batched
+  }, [onChange]);
+
+  const handleCommit = useCallback((e: React.SyntheticEvent<HTMLInputElement>) => {
+    dragging.current = false;
+    cancelAnimationFrame(raf.current);
+    const v = parseInt((e.target as HTMLInputElement).value);
+    setLocal(v);
+    onCommit(v);
+  }, [onCommit]);
+
+  const pct = ((local - min) / (max - min)) * 100;
+  return { local, pct, handleChange, handleCommit };
+}
+
 // ─── Mini slider ──────────────────────────────────────────────────────────────
 interface MiniSliderProps {
   key?: React.Key;
@@ -56,7 +95,7 @@ interface MiniSliderProps {
 const MiniSlider = memo(function MiniSlider({
   label, icon: Icon, value, min, max, onChange, onCommit, onReset,
 }: MiniSliderProps) {
-  const pct = ((value - min) / (max - min)) * 100;
+  const { local, pct, handleChange, handleCommit } = useLocalSlider(value, min, max, onChange, onCommit);
   return (
     <div className="flex flex-col gap-1 min-w-[76px] snap-start">
       <div className="flex items-center justify-between gap-1">
@@ -65,7 +104,7 @@ const MiniSlider = memo(function MiniSlider({
           <span className="text-[8px] uppercase tracking-[0.1em] text-[#4a4440] font-medium truncate">{label}</span>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
-          <span className="text-[8px] text-[#5a544c] font-mono tabular-nums">{value}</span>
+          <span className="text-[8px] text-[#5a544c] font-mono tabular-nums">{local}</span>
           {onReset && value !== 0 && (
             <button
               onClick={onReset}
@@ -74,26 +113,68 @@ const MiniSlider = memo(function MiniSlider({
           )}
         </div>
       </div>
-      <div className="relative h-[18px] flex items-center">
+      <div className="relative h-[22px] flex items-center">
         <input
-          type="range" min={min} max={max} value={value}
-          onChange={e => onChange(parseInt(e.target.value))}
-          onPointerUp={e => onCommit(parseInt((e.target as HTMLInputElement).value))}
-          onKeyUp={e => {
-            if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key))
-              onCommit(parseInt((e.currentTarget as HTMLInputElement).value));
-          }}
-          className="absolute inset-0 w-full h-full opacity-0 z-10"
-          style={{ touchAction: "pan-y" }}
+          type="range" min={min} max={max} value={local}
+          onChange={handleChange}
+          onPointerUp={handleCommit}
+          onTouchEnd={handleCommit}
+          className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+          style={{ touchAction: "none" }}
         />
-        <div className="w-full h-[1.5px] rounded-full overflow-hidden" style={{ background: 'rgba(200,191,176,0.08)' }}>
-          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'rgba(200,191,176,0.5)' }} />
+        <div className="w-full h-[2px] rounded-full overflow-visible" style={{ background: 'rgba(200,191,176,0.09)' }}>
+          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'rgba(200,191,176,0.55)' }} />
         </div>
         <div
-          className="absolute w-2 h-2 rounded-full pointer-events-none"
-          style={{ left: `${pct}%`, transform: 'translateX(-50%)', background: '#dedad4', boxShadow: '0 1px 4px rgba(0,0,0,0.5)' }}
+          className="absolute w-[14px] h-[14px] rounded-full pointer-events-none"
+          style={{
+            left: `${pct}%`, transform: 'translateX(-50%)',
+            background: '#dedad4', boxShadow: '0 1px 6px rgba(0,0,0,0.55)',
+          }}
         />
       </div>
+    </div>
+  );
+});
+
+// ─── Strength slider (inline, no memo needed — parent already memo-gates) ─────
+interface StrengthSliderProps {
+  value: number;
+  onChange: (v: number, isFinal?: boolean) => void;
+}
+
+const StrengthSlider = memo(function StrengthSlider({ value, onChange }: StrengthSliderProps) {
+  const { local, pct, handleChange, handleCommit } = useLocalSlider(
+    value, 0, 100,
+    (v) => onChange(v, false),
+    (v) => onChange(v, true),
+  );
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-[8px] uppercase tracking-[0.16em] text-[#4a4440] font-medium w-12 flex-shrink-0">
+        Strength
+      </span>
+      <div className="relative flex-1 h-[22px] flex items-center">
+        <input
+          type="range" min={0} max={100} value={local}
+          onChange={handleChange}
+          onPointerUp={handleCommit}
+          onTouchEnd={handleCommit}
+          className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+          style={{ touchAction: "none" }}
+        />
+        <div className="w-full h-[2px] rounded-full overflow-visible" style={{ background: 'rgba(200,191,176,0.09)' }}>
+          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'rgba(200,191,176,0.70)' }} />
+        </div>
+        <div
+          className="absolute w-[18px] h-[18px] rounded-full pointer-events-none"
+          style={{
+            left: `${pct}%`, transform: 'translateX(-50%)',
+            background: '#e8e4df', boxShadow: '0 1px 8px rgba(0,0,0,0.55)',
+          }}
+        />
+      </div>
+      <span className="text-[8px] text-[#4a4440] font-mono tabular-nums w-6 text-right">{local}</span>
     </div>
   );
 });
@@ -123,17 +204,20 @@ export default function FilterCarousel({
     [activeFilter, adjustments],
   );
 
-  const handleIntensityChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => onIntensityChange(parseInt(e.target.value), false),
-    [onIntensityChange],
-  );
-  const handleIntensityCommit = useCallback(
-    (e: React.PointerEvent<HTMLInputElement>) => onIntensityChange(parseInt((e.target as HTMLInputElement).value), true),
-    [onIntensityChange],
+  // Stable callbacks for MiniSlider — avoid re-creating on each render
+  const miniCallbacks = useMemo(() =>
+    Object.fromEntries(QUICK_PARAMS.map(p => [
+      p.key,
+      {
+        onChange: (v: number) => onAdjustmentChange({ ...adjustments, [p.key]: v }, false),
+        onCommit: (v: number) => onAdjustmentChange({ ...adjustments, [p.key]: v }, true),
+      },
+    ])),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [onAdjustmentChange, adjustments],
   );
 
   const isStandard = activeFilterId === 'standard';
-  const intensityPct = filterIntensity;
 
   return (
     <div className="w-full h-full flex flex-col overflow-hidden">
@@ -167,29 +251,7 @@ export default function FilterCarousel({
           className="flex-shrink-0 px-4 pb-2 space-y-2.5"
           style={{ borderBottom: '1px solid rgba(200,191,176,0.05)' }}
         >
-          {/* Intensity row */}
-          <div className="flex items-center gap-3">
-            <span className="text-[8px] uppercase tracking-[0.16em] text-[#4a4440] font-medium w-12 flex-shrink-0">
-              Strength
-            </span>
-            <div className="relative flex-1 h-[18px] flex items-center">
-              <input
-                type="range" min="0" max="100" value={intensityPct}
-                onChange={handleIntensityChange}
-                onPointerUp={handleIntensityCommit}
-                className="absolute inset-0 w-full h-full opacity-0 z-10"
-                style={{ touchAction: "pan-y" }}
-              />
-              <div className="w-full h-[1.5px] rounded-full overflow-hidden" style={{ background: 'rgba(200,191,176,0.09)' }}>
-                <div className="h-full rounded-full" style={{ width: `${intensityPct}%`, background: 'rgba(200,191,176,0.65)' }} />
-              </div>
-              <div
-                className="absolute w-2.5 h-2.5 rounded-full pointer-events-none"
-                style={{ left: `${intensityPct}%`, transform: 'translateX(-50%)', background: '#e8e4df', boxShadow: '0 1px 6px rgba(0,0,0,0.5)' }}
-              />
-            </div>
-            <span className="text-[8px] text-[#4a4440] font-mono tabular-nums w-6 text-right">{intensityPct}</span>
-          </div>
+          <StrengthSlider value={filterIntensity} onChange={onIntensityChange} />
 
           {/* Quick params */}
           {visibleParams.length > 0 && (
@@ -197,13 +259,14 @@ export default function FilterCarousel({
               {visibleParams.map(param => {
                 const defaultVal = activeFilter
                   ? ((activeFilter as Record<string, unknown>)[param.key] as number ?? 0) : 0;
+                const cb = miniCallbacks[param.key as string];
                 return (
                   <MiniSlider
                     key={param.key}
                     label={param.label} icon={param.icon}
                     value={adjustments[param.key]} min={param.min} max={param.max}
-                    onChange={v => onAdjustmentChange({ ...adjustments, [param.key]: v }, false)}
-                    onCommit={v => onAdjustmentChange({ ...adjustments, [param.key]: v }, true)}
+                    onChange={cb.onChange}
+                    onCommit={cb.onCommit}
                     onReset={() => onAdjustmentChange({ ...adjustments, [param.key]: defaultVal }, true)}
                   />
                 );
@@ -242,7 +305,6 @@ export default function FilterCarousel({
                   }}
                 >
                   {isOrig ? (
-                    /* "Original" — neutral checkerboard-style placeholder */
                     <div
                       className="w-full h-full flex items-center justify-center"
                       style={{ background: 'linear-gradient(135deg, #1a1510 0%, #0c0a08 100%)' }}

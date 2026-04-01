@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { Adjustments, DEFAULT_ADJUSTMENTS } from "../types";
 import {
   Sun, Contrast, Droplet, Thermometer, Palette, Image as ImageIcon,
@@ -92,17 +92,40 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
     [activeKey],
   );
 
-  const val   = adjustments[activeKey] ?? 0;
-  const range = activeTool.max - activeTool.min;
-  const pct   = ((val - activeTool.min) / range) * 100;
+  const committedVal = adjustments[activeKey] ?? 0;
 
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) =>
-    onChange({ ...adjustments, [activeKey]: parseInt(e.target.value) }, false),
-  [onChange, adjustments, activeKey]);
+  // Local visual state — decouples thumb position from React prop cycle
+  const [localVal, setLocalVal] = useState(committedVal);
+  const dragging = useRef(false);
+  const rafRef   = useRef(0);
+
+  // Sync from parent when: (a) not dragging, (b) tool changes, (c) undo/reset
+  useEffect(() => {
+    if (!dragging.current) setLocalVal(committedVal);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committedVal, activeKey]);
+
+  const range = activeTool.max - activeTool.min;
+  const pct   = ((localVal - activeTool.min) / range) * 100;
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = parseInt(e.target.value);
+    dragging.current = true;
+    setLocalVal(v);                            // Instant visual
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() =>
+      onChange({ ...adjustments, [activeKey]: v }, false)
+    );
+  }, [onChange, adjustments, activeKey]);
 
   const handleCommit = useCallback((e: React.SyntheticEvent<HTMLInputElement>) => {
+    dragging.current = false;
+    cancelAnimationFrame(rafRef.current);
     const v = parseInt((e.target as HTMLInputElement).value);
-    if (!isNaN(v)) onChange({ ...adjustments, [activeKey]: v }, true);
+    if (!isNaN(v)) {
+      setLocalVal(v);
+      onChange({ ...adjustments, [activeKey]: v }, true);
+    }
   }, [onChange, adjustments, activeKey]);
 
   const handleReset = useCallback(() => onChange(DEFAULT_ADJUSTMENTS, true), [onChange]);
@@ -155,15 +178,15 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
             {activeTool.label}
           </span>
           <span className={`text-[13px] font-mono tabular-nums font-medium transition-colors ${
-            val === 0 ? 'text-[#2e2a26]' : 'text-[#c8bfb0]'
+            localVal === 0 ? 'text-[#2e2a26]' : 'text-[#c8bfb0]'
           }`}>
-            {val > 0 ? `+${val}` : val}
+            {localVal > 0 ? `+${localVal}` : localVal}
           </span>
         </div>
 
         <div className="relative w-full h-8 flex items-center">
           <input
-            type="range" min={activeTool.min} max={activeTool.max} value={val}
+            type="range" min={activeTool.min} max={activeTool.max} value={localVal}
             onChange={handleChange}
             onPointerUp={handleCommit}
             onTouchEnd={handleCommit}
@@ -171,7 +194,7 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
               if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) handleCommit(e as any);
             }}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-            style={{ touchAction: "pan-y" }}
+            style={{ touchAction: "none" }}
           />
           {/* Track */}
           <div className="w-full h-[2px] rounded-full relative" style={{ background: 'rgba(200,191,176,0.10)' }}>
@@ -184,12 +207,12 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
             <div
               className="absolute h-full rounded-full"
               style={{
-                background: val === 0 ? 'transparent' : 'rgba(200,191,176,0.70)',
+                background: localVal === 0 ? 'transparent' : 'rgba(200,191,176,0.70)',
                 left:  activeTool.min < 0 ? '50%' : '0%',
                 width: activeTool.min < 0
-                  ? `${Math.abs(val / range) * 100}%`
+                  ? `${Math.abs(localVal / range) * 100}%`
                   : `${pct}%`,
-                transform: activeTool.min < 0 && val < 0 ? 'translateX(-100%)' : 'none',
+                transform: activeTool.min < 0 && localVal < 0 ? 'translateX(-100%)' : 'none',
               }}
             />
           </div>
