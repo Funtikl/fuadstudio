@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "dev",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "--port", "5173"],
+      "runtimeExecutable": "/Users/fuadrustamzade/.nvm/versions/node/v20.15.1/bin/node",
+      "runtimeArgs": ["/Users/fuadrustamzade/Code/fuad's-studio/node_modules/.bin/vite", "--port", "5173"],
       "port": 5173
     }
   ]

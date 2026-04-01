@@ -34,6 +34,12 @@ export default function PhotoEditor({
   const [renderedPreview, setRenderedPreview] = useState<string | null>(null);
   const renderVersionRef = useRef(0);
 
+  // Revoke any blob URL when component unmounts to avoid memory leaks
+  useEffect(() => () => {
+    if (renderedPreview && renderedPreview.startsWith('blob:')) URL.revokeObjectURL(renderedPreview);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [history, setHistory]         = useState<EditorState[]>([
     { filterId: initialFilterId, filterIntensity: initialFilterIntensity, adjustments: initialAdjustments },
   ]);
@@ -47,15 +53,35 @@ export default function PhotoEditor({
   const canRedo = currentIndex < history.length - 1;
 
   // ── Render to preview whenever a committed state changes ──────────────────
+  //
+  // Preview resolution: use physical pixels of the device's longest screen
+  // edge (capped at 1200px) so the preview is always crisp on Retina/OLED
+  // screens without being wastefully large.
+  // Preview format: PNG (lossless) — JPEG would degrade quality on every edit.
   useEffect(() => {
     if (draftState) return;
     const version = ++renderVersionRef.current;
     setIsRendering(true);
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const previewPx = Math.min(
+      Math.round(Math.max(window.screen.width, window.screen.height) * dpr),
+      900,
+    );
     const pc = document.createElement('canvas');
-    renderToCanvas(imageSrc, activeFilter, filterIntensity, adjustments, pc, 640)
-      .then(() => {
-        if (renderVersionRef.current !== version) return;
-        setRenderedPreview(pc.toDataURL('image/jpeg', 0.93));
+    renderToCanvas(imageSrc, activeFilter, filterIntensity, adjustments, pc, previewPx)
+      .then(() => new Promise<string>((res, rej) => {
+        // toBlob is async — doesn't block the main thread like toDataURL
+        pc.toBlob(blob => {
+          if (!blob) { rej(new Error('preview blob failed')); return; }
+          res(URL.createObjectURL(blob));
+        }, 'image/png');
+      }))
+      .then(url => {
+        if (renderVersionRef.current !== version) { URL.revokeObjectURL(url); return; }
+        setRenderedPreview(prev => {
+          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+          return url;
+        });
       })
       .catch(() => {})
       .finally(() => {
@@ -167,13 +193,25 @@ export default function PhotoEditor({
     setIsExporting(true);
     try {
       const canvas = canvasRef.current!;
+      // Render at full native resolution — no maxDimension cap
       await renderToCanvas(imageSrc, activeFilter, filterIntensity, adjustments, canvas);
-      const link = document.createElement('a');
-      link.href = canvas.toDataURL('image/png');
-      link.download = `fuads-studio-${activeFilter.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // toBlob is async — avoids main-thread freeze that toDataURL causes on
+      // large canvases, and is more memory-efficient (no base64 overhead)
+      await new Promise<void>((res, rej) => {
+        canvas.toBlob(blob => {
+          if (!blob) { rej(new Error('Export failed')); return; }
+          const url = URL.createObjectURL(blob);
+          const a   = document.createElement('a');
+          a.href     = url;
+          a.download = `fuads-studio-${activeFilter.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          // Revoke after the browser has had time to start the download
+          setTimeout(() => URL.revokeObjectURL(url), 2000);
+          res();
+        }, 'image/png');
+      });
     } catch (e) {
       console.error(e);
     } finally {
@@ -287,6 +325,7 @@ export default function PhotoEditor({
               transition={{ duration: 0.25 }}
               className="max-w-full max-h-full object-contain block"
               draggable={false}
+              style={{ imageRendering: 'auto' }}
             />
           ) : (
             <div
@@ -387,7 +426,7 @@ export default function PhotoEditor({
           background: 'rgba(7,5,3,0.98)',
           borderTop: '1px solid rgba(200,191,176,0.055)',
           boxShadow: '0 -24px 48px rgba(0,0,0,0.55)',
-          maxHeight: '52vh',
+          maxHeight: activeTab === 'adjust' ? 'none' : '52vh',
         }}
       >
         {/* Tab switcher */}
@@ -419,7 +458,7 @@ export default function PhotoEditor({
         </div>
 
         {/* Panel content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar min-h-0">
+        <div className={activeTab === 'adjust' ? '' : 'flex-1 overflow-y-auto no-scrollbar min-h-0'}>
           {activeTab === "presets" ? (
             <FilterCarousel
               activeFilterId={activeFilterId}

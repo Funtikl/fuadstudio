@@ -1,5 +1,5 @@
-// v6 — Oklab + Zone System + Physical Halation + Laplacian Pyramid + Subtractive Color
-const CACHE_NAME = 'fuads-studio-v6';
+// v7 — lossless PNG preview, toBlob export, img.decode(), buffer pool
+const CACHE_NAME = 'fuads-studio-v7';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

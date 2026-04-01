@@ -178,6 +178,28 @@ function tmpCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingCon
   return [c, x];
 }
 
+// ─── CSS filter parser (memoized) ────────────────────────────────────────────
+// Eliminates the tmpCanvas CSS-overlay step — all color ops stay in Oklab.
+
+interface _CssParsed { c: number; s: number; b: number; h: number; sep: number; gr: number; }
+const _cssCache = new Map<string, _CssParsed>();
+
+function parseCss(css: string): _CssParsed {
+  let p = _cssCache.get(css);
+  if (p) return p;
+  const fm = (re: RegExp, def: number) => { const m = css.match(re); return m ? parseFloat(m[1]) : def; };
+  p = {
+    c:   fm(/contrast\(([\d.]+)\)/, 1),
+    s:   fm(/saturate\(([\d.]+)\)/, 1),
+    b:   fm(/brightness\(([\d.]+)\)/, 1),
+    h:   fm(/hue-rotate\(([-\d.]+)deg\)/, 0),
+    sep: fm(/sepia\(([\d.]+)\)/, 0),
+    gr:  fm(/grayscale\(([\d.]+)\)/, 0),
+  };
+  _cssCache.set(css, p);
+  return p;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Main render pipeline
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -192,10 +214,12 @@ export async function renderToCanvas(
 ): Promise<void> {
 
   // ── Load image ────────────────────────────────────────────────────────────
+  // img.decode() forces the browser to fully rasterise the compressed image
+  // before we draw it — prevents partial-decode artefacts on large JPEGs.
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const i = new Image();
     i.crossOrigin = 'anonymous';
-    i.onload = () => resolve(i);
+    i.onload = () => (i.decode ? i.decode().then(() => resolve(i)).catch(() => resolve(i)) : resolve(i));
     i.onerror = reject;
     i.src = imageSrc;
   });
@@ -222,16 +246,7 @@ export async function renderToCanvas(
     ctx.drawImage(img, 0, 0, W, H);
   }
 
-  // ── Step 2: Film filter CSS overlay ───────────────────────────────────────
-  if (filter.css !== 'none' && filterIntensity > 0) {
-    const [fc, fx] = tmpCanvas(W, H);
-    fx.filter = filter.css;
-    fx.drawImage(img, 0, 0, W, H);
-    fx.filter = 'none';
-    ctx.globalAlpha = filterIntensity / 100;
-    ctx.drawImage(fc, 0, 0);
-    ctx.globalAlpha = 1;
-  }
+  // ── Step 2: (CSS filter params now baked into Oklab pass — no canvas needed)
 
   await yld();
 
@@ -247,29 +262,48 @@ export async function renderToCanvas(
     const d  = ctx.getImageData(0, 0, W, H);
     const px = d.data;
 
+    // ── Merge CSS filter params into Oklab pass ───────────────────────────
+    // parseCss is memoized — near-zero cost on repeat calls.
+    const fi   = filterIntensity / 100;
+    const cssP = (filter.css !== 'none' && fi > 0) ? parseCss(filter.css) : null;
+    // Interpolate each CSS param: identity at fi=0, full value at fi=1
+    const fcC   = cssP ? 1 + (cssP.c   - 1) * fi : 1;  // contrast multiplier
+    const fcS   = cssP ? 1 + (cssP.s   - 1) * fi : 1;  // saturation multiplier
+    const fcB   = cssP ? 1 + (cssP.b   - 1) * fi : 1;  // brightness multiplier
+    const fcH   = cssP ? cssP.h * fi * (Math.PI / 180) : 0; // hue-rotate radians
+    const fcSep = cssP ? cssP.sep * fi : 0;              // sepia amount
+    const fcGr  = cssP ? cssP.gr  * fi : 0;              // grayscale amount
+
     // Pre-compute ALL constants outside the loop
     const expMul     = Math.pow(2, adj.exposure / 50);
     const doExp      = expMul !== 1;
+    // Brightness: additive user offset + multiplicative filter brightness
     const brightAdd  = (adj.brightness / 100) * 0.18;
-    const contK      = 1 + adj.contrast / 100;
-    const doCont     = contK !== 1;
+    const brightMul  = fcB;
+    const doBrightMul = Math.abs(fcB - 1) > 0.0005;
+    // Contrast: filter × user (multiplicative combination)
+    const contK      = fcC * (1 + adj.contrast / 100);
+    const doCont     = Math.abs(contK - 1) > 0.0005;
     const hiAmt      = adj.highlights / 200;
     const shAmt      = adj.shadows / 200;
     const doHiSh     = hiAmt !== 0 || shAmt !== 0;
-    const satMul     = 1 + adj.saturation / 100;
+    // Saturation: filter × user
+    const satMul     = fcS * (1 + adj.saturation / 100);
     const vibAmt     = adj.vibrance / 100;
     const warmA      = (adj.warmth / 100) * 0.055;
     const warmB      = (adj.warmth / 100) * 0.038;
     const tintA      = (adj.tint / 100) * 0.045;
     const chromaA    = warmA + tintA;
-    const hueRad     = (adj.hue / 360) * 2 * Math.PI;
-    const doHue      = hueRad !== 0;
+    // Hue: filter hue-rotate + user hue combined
+    const hueRad     = fcH + (adj.hue / 360) * 2 * Math.PI;
+    const doHue      = Math.abs(hueRad) > 0.0005;
     const cosH       = Math.cos(hueRad);
     const sinH       = Math.sin(hueRad);
-    const sepiaAmt   = adj.sepia / 100;
-    const doSepia    = sepiaAmt > 0;
-    const grayAmt    = adj.grayscale / 100;
-    const doGray     = grayAmt > 0;
+    // Sepia + grayscale: combined filter + user
+    const sepiaAmt   = Math.min(1, fcSep + adj.sepia / 100);
+    const doSepia    = sepiaAmt > 0.001;
+    const grayAmt    = Math.min(1, fcGr  + adj.grayscale / 100);
+    const doGray     = grayAmt > 0.001;
     const invAmt     = adj.invert / 100;
     const doInv      = invAmt > 0;
     const hrAmt      = adj.highlightRolloff / 100;
@@ -279,12 +313,12 @@ export async function renderToCanvas(
     // Pre-compute split tone trig (was per-pixel before — huge waste)
     const doStSh     = stSH !== 0;
     const stShRad    = (stSH / 360) * 2 * Math.PI;
-    const stShCos    = Math.cos(stShRad) * 0.045;
-    const stShSin    = Math.sin(stShRad) * 0.045;
+    const stShCos    = Math.cos(stShRad) * 0.115;
+    const stShSin    = Math.sin(stShRad) * 0.115;
     const doStHi     = stHH !== 0;
     const stHiRad    = (stHH / 360) * 2 * Math.PI;
-    const stHiCos    = Math.cos(stHiRad) * 0.040;
-    const stHiSin    = Math.sin(stHiRad) * 0.040;
+    const stHiCos    = Math.cos(stHiRad) * 0.095;
+    const stHiSin    = Math.sin(stHiRad) * 0.095;
     const SUBK       = 0.14;
 
     for (let i = 0; i < N; i++) {
@@ -299,11 +333,15 @@ export async function renderToCanvas(
         L = _oL; a = _oa; b = _ob;
       }
 
-      // Brightness
+      // Brightness: filter multiplicative first, then user additive offset
+      if (doBrightMul) L = clamp01(L * brightMul);
       L = clamp01(L + brightAdd);
 
-      // Contrast (pivot 0.5)
-      if (doCont) L = clamp01((L - 0.5) * contK + 0.5);
+      // Contrast (pivot 0.5) — soft shoulder prevents harsh clipping
+      if (doCont) {
+        const t = L - 0.5;
+        L = clamp01(0.5 + t * contK * (1 - Math.abs(t) * 0.18 * Math.abs(contK - 1)));
+      }
 
       // Zone-weighted shadows / highlights
       if (doHiSh) {
@@ -354,7 +392,7 @@ export async function renderToCanvas(
       if (doStSh) {
         const sw = shadowW(L);
         if (sw > 0.01) {
-          const w = sw * 0.5;
+          const w = sw * 0.72;
           const w1 = 1 - w;
           a = a * w1 + stShCos * w;
           b = b * w1 + stShSin * w;
@@ -363,7 +401,7 @@ export async function renderToCanvas(
       if (doStHi) {
         const hw = highlightW(L);
         if (hw > 0.01) {
-          const w = hw * 0.4;
+          const w = hw * 0.60;
           const w1 = 1 - w;
           a = a * w1 + stHiCos * w;
           b = b * w1 + stHiSin * w;
@@ -438,16 +476,18 @@ export async function renderToCanvas(
     let base1: Float32Array | null = null;
 
     if (needMicro) {
-      base0 = blur(Lch, W, H, r_mc0); await yld();
-      base1 = blur(base0, W, H, r_mc1); await yld();
+      base0 = blur(Lch, W, H, r_mc0);
+      base1 = blur(base0, W, H, r_mc1);
       blurCache.set(r_mc0, base0);
     }
+
+    await yld();
 
     // Blur remaining radii from original L (skip if already done as r_mc0)
     for (const r of radiiSet) {
       if (blurCache.has(r)) continue;
       if (r === r_mc1 && base1) { blurCache.set(r, base1); continue; }
-      const bl = blur(Lch, W, H, r); await yld();
+      const bl = blur(Lch, W, H, r);
       blurCache.set(r, bl);
     }
 
@@ -576,9 +616,10 @@ export async function renderToCanvas(
       const rg = Math.max(1, Math.round(baseR * rMul * 0.62));
       const rb = Math.max(1, Math.round(baseR * rMul * 0.30));
 
-      const bR = blur(rH, W, H, rr); await yld();
-      const bG = blur(gH, W, H, rg); await yld();
-      const bB = blur(bH, W, H, rb); await yld();
+      const bR = blur(rH, W, H, rr);
+      const bG = blur(gH, W, H, rg);
+      const bB = blur(bH, W, H, rb);
+      await yld();
 
       for (let i = 0; i < N; i++) {
         hR[i] += bR[i] * w;
@@ -681,58 +722,48 @@ export async function renderToCanvas(
     await yld();
   }
 
-  // ── Step 10: Zone-Aware Grain ─────────────────────────────────────────────
-  if (adj.grain > 0) {
-    const d = ctx.getImageData(0, 0, W, H);
-    const px = d.data;
-    const swing = (adj.grain / 100) * 0.044;
-    _ni = (Math.random() * NTBL) | 0;
-    for (let i = 0; i < N; i++) {
-      const ri = i << 2;
-      rgb8ToOklab(px[ri], px[ri + 1], px[ri + 2]);
-      oklabToRgb8(clamp01(_oL + fgauss() * zoneGrainAmp(_oL) * swing), _oa, _ob);
-      px[ri] = _r8; px[ri + 1] = _g8; px[ri + 2] = _b8;
-    }
-    ctx.putImageData(d, 0, 0);
-    await yld();
-  }
-
   // ══════════════════════════════════════════════════════════════════════════
-  // Step 11: MERGED PER-PIXEL EFFECTS (fade + vignette — single pass)
-  //
-  // Both are simple per-pixel multiplies. Merging avoids a second
-  // getImageData/putImageData round-trip.
+  // Step 10: MERGED grain + fade + vignette (single getImageData pass)
   // ══════════════════════════════════════════════════════════════════════════
-  if (adj.fade > 0 || adj.vignette > 0) {
+  if (adj.grain > 0 || adj.fade > 0 || adj.vignette > 0) {
     const d  = ctx.getImageData(0, 0, W, H);
     const px = d.data;
-    const fadeK = (adj.fade / 100) * 0.20;
+    const doGrain = adj.grain > 0;
+    const grainSwing = doGrain ? (adj.grain / 100) * 0.044 : 0;
+    const fadeK  = (adj.fade / 100) * 0.20;
     const doFade = fadeK > 0;
     const vigStr = adj.vignette / 100;
     const doVig  = vigStr > 0;
     const cx = W / 2, cy = H / 2;
     const invCx = 1 / cx, invCy = 1 / cy;
+    if (doGrain) _ni = (Math.random() * NTBL) | 0;
 
     for (let y = 0; y < H; y++) {
-      const dy = (y - cy) * invCy;
+      const dy  = (y - cy) * invCy;
       const dy2 = dy * dy;
       for (let x = 0; x < W; x++) {
         const ri = (y * W + x) << 2;
         let r = TO_LINEAR[px[ri]], g = TO_LINEAR[px[ri + 1]], b = TO_LINEAR[px[ri + 2]];
 
-        // Fade (lift blacks)
-        if (doFade) {
-          const f1 = 1 - fadeK;
-          r = r * f1 + fadeK;
-          g = g * f1 + fadeK;
-          b = b * f1 + fadeK;
+        // Zone-aware grain (luminance-only, perceptual)
+        if (doGrain) {
+          rgb8ToOklab(px[ri], px[ri + 1], px[ri + 2]);
+          const grainL = clamp01(_oL + fgauss() * zoneGrainAmp(_oL) * grainSwing);
+          oklabToRgb8(grainL, _oa, _ob);
+          r = TO_LINEAR[_r8]; g = TO_LINEAR[_g8]; b = TO_LINEAR[_b8];
         }
 
-        // Vignette
+        // Fade (lift blacks in linear light)
+        if (doFade) {
+          const f1 = 1 - fadeK;
+          r = r * f1 + fadeK; g = g * f1 + fadeK; b = b * f1 + fadeK;
+        }
+
+        // Vignette (smooth quintic falloff)
         if (doVig) {
-          const dx = (x - cx) * invCx;
+          const dx   = (x - cx) * invCx;
           const dist2 = dx * dx + dy2;
-          const vig = clamp01(1 - vigStr * Math.pow(dist2, 1.25) * 0.85);
+          const vig  = clamp01(1 - vigStr * Math.pow(dist2, 1.25) * 0.85);
           r *= vig; g *= vig; b *= vig;
         }
 
@@ -740,6 +771,7 @@ export async function renderToCanvas(
       }
     }
     ctx.putImageData(d, 0, 0);
+    await yld();
   }
 
   // ── Step 12: Light Leak (canvas gradient, screen blend) ───────────────────

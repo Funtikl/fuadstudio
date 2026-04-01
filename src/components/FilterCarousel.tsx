@@ -17,7 +17,7 @@ interface FilterCarouselProps {
   onAdjustmentChange: (adj: Adjustments, isFinal?: boolean) => void;
 }
 
-const CATEGORIES: FilterCategory[] = ["Film", "Leica", "Hasselblad"];
+const CATEGORIES: FilterCategory[] = ["Leica", "Film", "Hasselblad"];
 
 const QUICK_PARAMS: {
   key: keyof Adjustments;
@@ -103,10 +103,10 @@ export default function FilterCarousel({
   activeFilterId, onSelectFilter, previewImage,
   filterIntensity, onIntensityChange, adjustments, onAdjustmentChange,
 }: FilterCarouselProps) {
-  const [activeCategory, setActiveCategory] = useState<FilterCategory>("Film");
+  const [activeCategory, setActiveCategory] = useState<FilterCategory>("Leica");
 
   const filteredFilters = useMemo(
-    () => FILTERS.filter(f => f.category === activeCategory || (activeCategory === 'Film' && f.id === 'standard')),
+    () => FILTERS.filter(f => f.category === activeCategory || (activeCategory === 'Leica' && f.id === 'standard')),
     [activeCategory],
   );
 

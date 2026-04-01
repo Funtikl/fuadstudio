@@ -8,7 +8,11 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(find /Users/fuadrustamzade/Code/fuads-studio -name sw.js -o -name service-worker.*)",
       "Read(//Users/fuadrustamzade/Code/**)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(/usr/local/bin/npx vite:*)",
+      "Bash(/opt/homebrew/bin/npx vite:*)",
+      "Bash(PATH=\"/Users/fuadrustamzade/.nvm/versions/node/v20.15.1/bin:$PATH\" npx vite build)",
+      "Bash(/Users/fuadrustamzade/.nvm/versions/node/v20.15.1/bin/node node_modules/.bin/tsc --noEmit)"
     ]
   }
 }
