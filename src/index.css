@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Inter:wght@300;400;500;600&display=swap");
 @import "tailwindcss";
 
 @theme {
@@ -6,16 +6,11 @@
   --font-serif: "Cormorant Garamond", ui-serif, Georgia, serif;
 }
 
-/* ── Global touch polish ─────────────────────────────────────────── */
-
+/* ── Reset & base ────────────────────────────────────────────────── */
 *, *::before, *::after {
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
-}
-
-button, a, label {
-  touch-action: manipulation;
-  cursor: pointer;
+  box-sizing: border-box;
 }
 
 html, body, #root {
@@ -28,100 +23,115 @@ html, body, #root {
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #030303;
-  color: white;
+  background: #060504;
+  color: #e8e4df;
+  font-family: "Inter", sans-serif;
+}
+
+/* GPU-composite layer for interactive elements */
+button, a, label {
+  touch-action: manipulation;
+  cursor: pointer;
+  /* Promote to its own layer to avoid stutter on press */
+  will-change: transform, opacity;
 }
 
 /* ── Scrollbars ──────────────────────────────────────────────────── */
-
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
-
 .scroll-x-contain { overscroll-behavior-x: contain; }
 .scroll-y-contain { overscroll-behavior-y: contain; }
 
-/* ── Glass panel utility ─────────────────────────────────────────── */
-.glass-panel {
-  @apply bg-zinc-900/70 backdrop-blur-xl border border-white/10;
+/* ── Utilities ───────────────────────────────────────────────────── */
+.glass-dark {
+  background: rgba(9, 7, 5, 0.92);
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
 }
 
-/* ── Range inputs ────────────────────────────────────────────────── */
-
+/* ── Range input — cross-browser ─────────────────────────────────── */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
   touch-action: pan-y;
   cursor: grab;
+  /* Invisible but interactive — custom track/thumb drawn behind */
 }
-input[type="range"]:active { cursor: grabbing; }
-input[type="range"]:focus { outline: none; }
+input[type="range"]:active  { cursor: grabbing; }
+input[type="range"]:focus   { outline: none; }
 
-/* Track */
+/* Webkit track — effectively hidden (custom div drawn beneath) */
 input[type="range"]::-webkit-slider-runnable-track {
   width: 100%;
-  height: 3px;
-  cursor: pointer;
-  background: rgba(255, 255, 255, 0.08);
+  height: 2px;
+  background: transparent;
   border-radius: 2px;
 }
 input[type="range"]::-moz-range-track {
-  height: 3px;
-  background: rgba(255, 255, 255, 0.08);
+  height: 2px;
+  background: transparent;
   border-radius: 2px;
 }
 
-/* Thumb */
+/* Webkit thumb — hidden (custom div drawn) */
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  height: 26px;
-  width: 26px;
+  height: 28px;
+  width: 28px;
   border-radius: 50%;
-  background: #ffffff;
+  background: transparent;
   cursor: grab;
-  margin-top: -11.5px;
-  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255,255,255,0.1);
-  border: none;
-  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1),
-              box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-top: -13px;
 }
 input[type="range"]::-moz-range-thumb {
-  height: 26px;
-  width: 26px;
+  height: 28px;
+  width: 28px;
   border-radius: 50%;
-  background: #ffffff;
+  background: transparent;
   cursor: grab;
   border: none;
-  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
-  transition: transform 0.15s ease;
+  opacity: 0;
 }
 
-input[type="range"]::-webkit-slider-thumb:active {
-  transform: scale(1.25);
-  cursor: grabbing;
-  box-shadow: 0 0 0 8px rgba(255, 255, 255, 0.08), 0 2px 12px rgba(0, 0, 0, 0.5);
-}
-input[type="range"]::-moz-range-thumb:active {
-  transform: scale(1.25);
+/* ── Image rendering ─────────────────────────────────────────────── */
+img {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
 }
 
-/* Desktop: smaller thumb */
-@media (min-width: 1024px) {
-  input[type="range"]::-webkit-slider-thumb {
-    height: 20px;
-    width: 20px;
-    margin-top: -8.5px;
-  }
-  input[type="range"]::-webkit-slider-runnable-track {
-    height: 4px;
+/* For photo display — smooth high-quality rendering */
+img.photo-display {
+  image-rendering: auto;
+}
+
+/* ── Motion / animation ──────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
-/* ── Smooth transitions for layout shifts ────────────────────────── */
-.transition-smooth {
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+/* Smooth hardware-accelerated scale on interactive elements */
+.hw-scale {
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* Spinner for export/render */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 0.7s linear infinite;
+}
+
+/* ── Selection ───────────────────────────────────────────────────── */
+::selection {
+  background: rgba(200, 191, 176, 0.25);
 }

@@ -2,60 +2,85 @@ import { Adjustments } from '../types';
 
 /**
  * Build a CSS filter string for fast live-drag preview.
- * This approximates the pixel-based render in render.ts — not exact but close.
+ *
+ * Goals:
+ *   – Approximate the Oklab pixel render closely enough for real-time feedback
+ *   – Never cause a visible "jump" when transitioning from draft→rendered preview
+ *
+ * Mapping strategy mirrors render.ts processing order:
+ *   Exposure → Brightness → Contrast → Highlights/Shadows → Colour → Effects
  */
 export function getAdjustmentCss(adj: Adjustments): string {
-  // Exposure → brightness (approx 2^stops mapping)
-  const expMul = Math.pow(2, adj.exposure / 50) * 100; // as %
 
-  // Brightness: direct
-  const brightPct = 100 + adj.brightness * 0.8;
+  // ── Exposure (2^stops → brightness%) ────────────────────────────────────────
+  const expPct = Math.pow(2, adj.exposure / 50) * 100;
 
-  // Combine into a single brightness multiplier
-  const finalBrightness = (expMul / 100) * (brightPct / 100) * 100;
+  // ── Brightness (additive Oklab L ≈ multiplicative CSS brightness) ────────────
+  // In Oklab: L += adj.brightness/100 * 0.18
+  // Rough CSS equivalent: +1% brightness per unit
+  const brightPct = 100 + adj.brightness * 0.95;
 
-  // Contrast
-  const contrast = 100 + adj.contrast
-    + adj.clarity * 0.35
-    + adj.microContrast * 0.12
-    + adj.dehaze * 0.25;
+  // ── Combine exposure + brightness ────────────────────────────────────────────
+  let brightness = (expPct / 100) * (brightPct / 100) * 100;
 
-  // Saturation
-  const saturation = 100 + adj.saturation + adj.vibrance * 0.75 + adj.dehaze * 0.18;
+  // ── Contrast (pivot at 0.5 in Oklab ≈ same in CSS) ───────────────────────────
+  let contrast = 100 + adj.contrast;
 
-  // Warmth → sepia + hue-rotate
-  const sepia = adj.sepia + (adj.warmth > 0 ? adj.warmth * 0.45 : 0);
+  // Clarity boosts local contrast — approximate as global contrast
+  contrast += adj.clarity * 0.38;
 
-  // Hue: warmth cool side + tint + direct hue
-  const hue = (adj.warmth < 0 ? adj.warmth * 0.28 : 0) + adj.tint * 0.45 + adj.hue;
+  // Micro-contrast: slight contrast lift
+  contrast += adj.microContrast * 0.10;
 
-  // Blur
-  const blur = adj.blur * 0.12;
+  // Dehaze: contrast + brightness correction
+  contrast   += adj.dehaze * 0.28;
+  brightness += adj.dehaze * (-0.018 * (adj.dehaze > 0 ? 1 : -1));
 
+  // Highlight rolloff: gentle brightness reduction in the top zone
+  // (only noticeable when highlights are bright)
+  brightness -= adj.highlightRolloff * 0.022;
+
+  // Fade lifts blacks — approximate as slight brightness increase
+  brightness += adj.fade * 0.055;
+
+  // ── Saturation + Vibrance ────────────────────────────────────────────────────
+  // Vibrance in render.ts boosts low-sat colours more, ~0.75× as strong overall
+  let saturation = 100 + adj.saturation + adj.vibrance * 0.75;
+
+  // Subtractive colour mixing: more chroma slightly darkens — model as tiny -brightness
+  const satBoost = Math.max(0, adj.saturation + adj.vibrance * 0.75);
+  brightness -= satBoost * 0.008;
+
+  // Dehaze saturation boost
+  saturation += adj.dehaze * 0.18;
+
+  // ── Warmth (Oklab b-axis shift → approx sepia + hue-rotate) ─────────────────
+  // Positive warmth: add sepia-like warmth + slight amber hue-rotate
+  // Negative warmth: cool hue-rotate
+  const sepiaPct = adj.sepia + (adj.warmth > 0 ? adj.warmth * 0.40 : 0);
+  // Warmth cool side + tint + direct hue
+  const hueRotate = (adj.warmth < 0 ? adj.warmth * 0.26 : 0)
+    + adj.tint * 0.44
+    + adj.hue;
+
+  // ── Classic effects ──────────────────────────────────────────────────────────
   const grayscale = adj.grayscale;
-  const invert = adj.invert;
-
-  // Highlight rolloff: small brightness reduction
-  const rolloffB = -(adj.highlightRolloff * 0.022);
-
-  // Shadow lift approximation: slight brightness boost for fade
-  const fadeB = adj.fade * 0.06;
-
-  const b = finalBrightness + rolloffB + fadeB;
+  const invert    = adj.invert;
+  const blur      = adj.blur * 0.10;
 
   return [
-    `brightness(${b.toFixed(2)}%)`,
+    `brightness(${brightness.toFixed(2)}%)`,
     `contrast(${contrast.toFixed(1)}%)`,
     `saturate(${saturation.toFixed(1)}%)`,
-    sepia > 0 ? `sepia(${sepia.toFixed(1)}%)` : '',
-    hue !== 0 ? `hue-rotate(${hue.toFixed(1)}deg)` : '',
-    grayscale > 0 ? `grayscale(${grayscale.toFixed(1)}%)` : '',
-    invert > 0 ? `invert(${invert.toFixed(1)}%)` : '',
-    blur > 0 ? `blur(${blur.toFixed(2)}px)` : '',
+    sepiaPct > 0     ? `sepia(${Math.min(100, sepiaPct).toFixed(1)}%)` : '',
+    hueRotate !== 0  ? `hue-rotate(${hueRotate.toFixed(1)}deg)` : '',
+    grayscale > 0    ? `grayscale(${grayscale.toFixed(1)}%)` : '',
+    invert > 0       ? `invert(${invert.toFixed(1)}%)` : '',
+    blur > 0         ? `blur(${blur.toFixed(2)}px)` : '',
   ].filter(Boolean).join(' ') || 'none';
 }
 
-/** Convert hue angle (degrees) to "r, g, b" string for CSS rgba(). */
+/** Convert hue angle (degrees) → "r, g, b" string for CSS rgba(). */
 export function hueToRgb(hueDeg: number): string {
   const h = ((hueDeg % 360) + 360) % 360;
   const s = 0.65, l = 0.5;
@@ -63,7 +88,7 @@ export function hueToRgb(hueDeg: number): string {
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = l - c / 2;
   let r: number, g: number, b: number;
-  if (h < 60)       { r = c; g = x; b = 0; }
+  if      (h < 60)  { r = c; g = x; b = 0; }
   else if (h < 120) { r = x; g = c; b = 0; }
   else if (h < 180) { r = 0; g = c; b = x; }
   else if (h < 240) { r = 0; g = x; b = c; }

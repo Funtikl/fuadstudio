@@ -1,17 +1,16 @@
 import { Adjustments } from '../types';
 import { Filter } from './filters';
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Core utilities ───────────────────────────────────────────────────────────
 
-/** Yield to browser between heavy steps — prevents main-thread crash on mobile */
 const yld = () => new Promise<void>(r => setTimeout(r, 0));
-
-const clamp = (v: number, lo = 0, hi = 255) => v < lo ? lo : v > hi ? hi : v;
 const clamp01 = (v: number) => v < 0 ? 0 : v > 1 ? 1 : v;
 
-// sRGB ↔ Linear-light LUTs built once at module load
+// ─── sRGB ↔ Linear LUTs (built once) ─────────────────────────────────────────
+
 const TO_LINEAR = new Float32Array(256);
-const TO_GAMMA = new Uint8Array(65536); // 16-bit index (linear * 65535)
+const TO_GAMMA  = new Uint8Array(65536);
+
 (function buildLuts() {
   for (let i = 0; i < 256; i++) {
     const v = i / 255;
@@ -20,94 +19,179 @@ const TO_GAMMA = new Uint8Array(65536); // 16-bit index (linear * 65535)
   for (let i = 0; i < 65536; i++) {
     const v = i / 65535;
     const g = v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
-    TO_GAMMA[i] = Math.round(clamp(g * 255, 0, 255));
+    TO_GAMMA[i] = Math.min(255, Math.max(0, Math.round(g * 255)));
   }
 })();
 
-const linearToGamma8 = (v: number) => TO_GAMMA[Math.round(clamp01(v) * 65535)];
+const lin2g = (v: number) => TO_GAMMA[(clamp01(v) * 65535 + 0.5) | 0];
 
-// RGB ↔ HSL
-function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  if (max === min) return [0, 0, l];
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  let h: number;
-  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-  else if (max === g) h = ((b - r) / d + 2) / 6;
-  else h = ((r - g) / d + 4) / 6;
-  return [h, s, l];
+// ─── Pre-baked Gaussian noise table ──────────────────────────────────────────
+
+const NTBL = 65536;
+const NOISE = new Float32Array(NTBL);
+(function() {
+  for (let i = 0; i < NTBL; i += 2) {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    const m = Math.sqrt(-2 * Math.log(u));
+    NOISE[i]     = m * Math.cos(2 * Math.PI * v);
+    NOISE[i + 1] = m * Math.sin(2 * Math.PI * v);
+  }
+})();
+let _ni = 0;
+const fgauss = () => NOISE[_ni = (_ni + 1) & (NTBL - 1)];
+
+// ─── Buffer pool (avoids GC thrash from repeated Float32Array allocations) ───
+
+const _pool: Float32Array[] = [];
+function getBuffer(n: number): Float32Array {
+  const buf = _pool.pop();
+  if (buf && buf.length >= n) { buf.fill(0, 0, n); return buf; }
+  return new Float32Array(n);
 }
-function hslToRgb(h: number, s: number, l: number): [number, number, number] {
-  if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-  const hue2rgb = (p: number, q: number, t: number) => {
-    if (t < 0) t += 1; if (t > 1) t -= 1;
-    if (t < 1 / 6) return p + (q - p) * 6 * t;
-    if (t < 1 / 2) return q;
-    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
-  };
+function freeBuffer(buf: Float32Array) { if (_pool.length < 24) _pool.push(buf); }
+
+// ─── Separable box blur (3-pass ≈ Gaussian, using buffer pool) ──────────────
+
+function boxBlurH(s: Float32Array, d: Float32Array, W: number, H: number, r: number) {
+  const inv = 1 / (2 * r + 1);
+  for (let y = 0; y < H; y++) {
+    const row = y * W;
+    let sum = s[row] * (r + 1);
+    for (let x = 1; x <= r; x++) sum += s[row + Math.min(x, W - 1)];
+    for (let x = 0; x < W; x++) {
+      d[row + x] = sum * inv;
+      sum += s[row + Math.min(x + r + 1, W - 1)] - s[row + Math.max(x - r, 0)];
+    }
+  }
+}
+
+function boxBlurV(s: Float32Array, d: Float32Array, W: number, H: number, r: number) {
+  const inv = 1 / (2 * r + 1);
+  for (let x = 0; x < W; x++) {
+    let sum = s[x] * (r + 1);
+    for (let y = 1; y <= r; y++) sum += s[Math.min(y, H - 1) * W + x];
+    for (let y = 0; y < H; y++) {
+      d[y * W + x] = sum * inv;
+      sum += s[Math.min(y + r + 1, H - 1) * W + x] - s[Math.max(y - r, 0) * W + x];
+    }
+  }
+}
+
+/** 3-pass box blur ≈ Gaussian. Returns pooled buffer — caller must freeBuffer. */
+function blur(src: Float32Array, W: number, H: number, r: number): Float32Array {
+  if (r < 1) { const out = getBuffer(W * H); out.set(src.subarray(0, W * H)); return out; }
+  const n   = W * H;
+  const t   = getBuffer(n);
+  const a   = getBuffer(n);
+  const b   = getBuffer(n);
+  // Pass 1
+  boxBlurH(src, t, W, H, r);
+  boxBlurV(t, a, W, H, r);
+  // Pass 2
+  boxBlurH(a, t, W, H, r);
+  boxBlurV(t, b, W, H, r);
+  // Pass 3
+  boxBlurH(b, t, W, H, r);
+  boxBlurV(t, a, W, H, r);
+  freeBuffer(t); freeBuffer(b);
+  return a; // caller frees
+}
+
+// ─── Inline Oklab (no tuple allocation — ~3× faster in hot loops) ────────────
+//
+// Instead of returning [L,a,b], we write into module-scoped vars.
+// This eliminates millions of array allocations in per-pixel loops.
+
+let _oL = 0, _oa = 0, _ob = 0;
+
+function rgb8ToOklab(r8: number, g8: number, b8: number) {
+  const rl = TO_LINEAR[r8], gl = TO_LINEAR[g8], bl = TO_LINEAR[b8];
+  const l = 0.4122214708 * rl + 0.5363325363 * gl + 0.0514459929 * bl;
+  const m = 0.2119034982 * rl + 0.6806995451 * gl + 0.1073969566 * bl;
+  const s = 0.0883024619 * rl + 0.2817188376 * gl + 0.6299787005 * bl;
+  const lc = Math.cbrt(Math.max(0, l));
+  const mc = Math.cbrt(Math.max(0, m));
+  const sc = Math.cbrt(Math.max(0, s));
+  _oL = 0.2104542553 * lc + 0.7936177850 * mc - 0.0040720468 * sc;
+  _oa = 1.9779984951 * lc - 2.4285922050 * mc + 0.4505937099 * sc;
+  _ob = 0.0259040371 * lc + 0.7827717662 * mc - 0.8086757660 * sc;
+}
+
+let _r8 = 0, _g8 = 0, _b8 = 0;
+
+function oklabToRgb8(L: number, a: number, b: number) {
+  const lc = L + 0.3963377774 * a + 0.2158037573 * b;
+  const mc = L - 0.1055613458 * a - 0.0638541728 * b;
+  const sc = L - 0.0894841775 * a - 1.2914855480 * b;
+  const rl =  4.0767416621 * lc*lc*lc - 3.3077115913 * mc*mc*mc + 0.2309699292 * sc*sc*sc;
+  const gl = -1.2684380046 * lc*lc*lc + 2.6097574011 * mc*mc*mc - 0.3413193965 * sc*sc*sc;
+  const bl = -0.0041960863 * lc*lc*lc - 0.7034186147 * mc*mc*mc + 1.7076147010 * sc*sc*sc;
+  _r8 = lin2g(rl); _g8 = lin2g(gl); _b8 = lin2g(bl);
+}
+
+function linRgbToOklab(rl: number, gl: number, bl: number) {
+  const l = 0.4122214708 * rl + 0.5363325363 * gl + 0.0514459929 * bl;
+  const m = 0.2119034982 * rl + 0.6806995451 * gl + 0.1073969566 * bl;
+  const s = 0.0883024619 * rl + 0.2817188376 * gl + 0.6299787005 * bl;
+  const lc = Math.cbrt(Math.max(0, l));
+  const mc = Math.cbrt(Math.max(0, m));
+  const sc = Math.cbrt(Math.max(0, s));
+  _oL = 0.2104542553 * lc + 0.7936177850 * mc - 0.0040720468 * sc;
+  _oa = 1.9779984951 * lc - 2.4285922050 * mc + 0.4505937099 * sc;
+  _ob = 0.0259040371 * lc + 0.7827717662 * mc - 0.8086757660 * sc;
+}
+
+function oklabToLinRgb(L: number, a: number, b: number): [number, number, number] {
+  const lc = L + 0.3963377774 * a + 0.2158037573 * b;
+  const mc = L - 0.1055613458 * a - 0.0638541728 * b;
+  const sc = L - 0.0894841775 * a - 1.2914855480 * b;
   return [
-    Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
-    Math.round(hue2rgb(p, q, h) * 255),
-    Math.round(hue2rgb(p, q, h - 1 / 3) * 255),
+     4.0767416621 * lc*lc*lc - 3.3077115913 * mc*mc*mc + 0.2309699292 * sc*sc*sc,
+    -1.2684380046 * lc*lc*lc + 2.6097574011 * mc*mc*mc - 0.3413193965 * sc*sc*sc,
+    -0.0041960863 * lc*lc*lc - 0.7034186147 * mc*mc*mc + 1.7076147010 * sc*sc*sc,
   ];
 }
 
-/** Convert hue angle (degrees) to [r, g, b] 0-255 */
-function hueToRgbArr(hueDeg: number): [number, number, number] {
-  const h = ((hueDeg % 360) + 360) % 360;
-  const s = 0.65, l = 0.5;
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = l - c / 2;
-  let r: number, g: number, b: number;
-  if (h < 60)       { r = c; g = x; b = 0; }
-  else if (h < 120) { r = x; g = c; b = 0; }
-  else if (h < 180) { r = 0; g = c; b = x; }
-  else if (h < 240) { r = 0; g = x; b = c; }
-  else if (h < 300) { r = x; g = 0; b = c; }
-  else              { r = c; g = 0; b = x; }
-  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+// ─── Zone system masks ───────────────────────────────────────────────────────
+
+const shadowW    = (L: number) => clamp01(1 - L / 0.4);
+const highlightW = (L: number) => clamp01((L - 0.45) / 0.4);
+
+function zoneGrainAmp(L: number): number {
+  if (L < 0.20) return 1.55;
+  if (L < 0.40) return 1.25;
+  if (L < 0.60) return 1.00;
+  if (L < 0.80) return 0.60;
+  return 0.22;
 }
 
-/** Gaussian random (Box-Muller) for film-quality grain */
-function gaussianRandom(): number {
-  let u = 0, v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
+// ─── Canvas helper ───────────────────────────────────────────────────────────
 
-/** Create a tmp canvas same size as src */
 function tmpCanvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
-  const ctx = c.getContext('2d', { willReadFrequently: true })!;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  return [c, ctx];
+  const x = c.getContext('2d', { willReadFrequently: true })!;
+  x.imageSmoothingEnabled = true;
+  x.imageSmoothingQuality = 'high';
+  return [c, x];
 }
 
-/**
- * Renders a photo with all filter + adjustment effects onto a canvas.
- * Used for both the live preview (downscaled) and final export (full res).
- * Yields to the browser between heavy steps — prevents mobile main-thread crash.
- */
+// ═══════════════════════════════════════════════════════════════════════════════
+// Main render pipeline
+// ═══════════════════════════════════════════════════════════════════════════════
+
 export async function renderToCanvas(
   imageSrc: string,
   filter: Filter,
   filterIntensity: number,
-  adjustments: Adjustments,
+  adj: Adjustments,
   canvas: HTMLCanvasElement,
   maxDimension?: number,
 ): Promise<void> {
 
-  // ── Load image ─────────────────────────────────────────────────────────────
+  // ── Load image ────────────────────────────────────────────────────────────
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const i = new Image();
     i.crossOrigin = 'anonymous';
@@ -116,38 +200,34 @@ export async function renderToCanvas(
     i.src = imageSrc;
   });
 
-  let W = img.naturalWidth;
-  let H = img.naturalHeight;
+  let W = img.naturalWidth, H = img.naturalHeight;
   if (maxDimension && Math.max(W, H) > maxDimension) {
-    const scale = maxDimension / Math.max(W, H);
-    W = Math.round(W * scale);
-    H = Math.round(H * scale);
+    const s = maxDimension / Math.max(W, H);
+    W = Math.round(W * s); H = Math.round(H * s);
   }
+  const N = W * H;
 
-  canvas.width = W;
-  canvas.height = H;
+  canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  // ── Step 1: High-quality downscale (multi-step for best quality) ────────────
+  // ── Step 1: High-quality downscale ────────────────────────────────────────
   if (maxDimension && Math.max(img.naturalWidth, img.naturalHeight) > maxDimension * 2) {
-    // Two-step downscale for sharpest result
-    const midW = Math.round(img.naturalWidth * 0.5);
-    const midH = Math.round(img.naturalHeight * 0.5);
-    const [mid, midCtx] = tmpCanvas(midW, midH);
-    midCtx.drawImage(img, 0, 0, midW, midH);
-    ctx.drawImage(mid, 0, 0, W, H);
+    const mw = Math.round(img.naturalWidth * 0.5), mh = Math.round(img.naturalHeight * 0.5);
+    const [mc, mx] = tmpCanvas(mw, mh);
+    mx.drawImage(img, 0, 0, mw, mh);
+    ctx.drawImage(mc, 0, 0, W, H);
   } else {
     ctx.drawImage(img, 0, 0, W, H);
   }
 
-  // ── Step 2: Film filter overlay (composited at filterIntensity) ────────────
+  // ── Step 2: Film filter CSS overlay ───────────────────────────────────────
   if (filter.css !== 'none' && filterIntensity > 0) {
-    const [fc, fcCtx] = tmpCanvas(W, H);
-    fcCtx.filter = filter.css;
-    fcCtx.drawImage(img, 0, 0, W, H);
-    fcCtx.filter = 'none';
+    const [fc, fx] = tmpCanvas(W, H);
+    fx.filter = filter.css;
+    fx.drawImage(img, 0, 0, W, H);
+    fx.filter = 'none';
     ctx.globalAlpha = filterIntensity / 100;
     ctx.drawImage(fc, 0, 0);
     ctx.globalAlpha = 1;
@@ -155,156 +235,150 @@ export async function renderToCanvas(
 
   await yld();
 
-  // ── Step 3: Combined tone + color pass (single pixel loop) ─────────────────
-  // This covers: exposure, highlights, shadows, contrast, brightness,
-  //              warmth, tint, hue, saturation, vibrance,
-  //              sepia, grayscale, invert, microContrast, highlightRolloff
+  // ══════════════════════════════════════════════════════════════════════════
+  // Step 3: MAIN OKLAB PIXEL PASS (single getImageData, zero tuple allocs)
+  //
+  // All tone + color operations in one pass through Oklab space:
+  //   exposure · brightness · contrast · zone shadows/highlights ·
+  //   highlight rolloff · warmth · tint · hue · saturation + vibrance
+  //   (with subtractive mixing) · sepia · grayscale · split tone · invert
+  // ══════════════════════════════════════════════════════════════════════════
   {
-    const d = ctx.getImageData(0, 0, W, H);
+    const d  = ctx.getImageData(0, 0, W, H);
     const px = d.data;
 
-    // Pre-compute scalars
-    const expStops = adjustments.exposure / 50;          // ±2 stops
-    const expMul = Math.pow(2, expStops);
-    const brightMul = 1 + adjustments.brightness / 100;
-    const contrastFactor = 1 + adjustments.contrast / 100;
-    const hiAmt = adjustments.highlights / 200;          // ±0.5
-    const shAmt = adjustments.shadows / 200;
-    const satAmt = 1 + adjustments.saturation / 100;
-    const vibAmt = adjustments.vibrance / 100;
-    const warmth = adjustments.warmth / 100;
-    const tint = adjustments.tint / 100;
-    const hueShiftRad = (adjustments.hue / 360) * 2 * Math.PI;
-    const sepiaAmt = adjustments.sepia / 100;
-    const grayAmt = adjustments.grayscale / 100;
-    const invertAmt = adjustments.invert / 100;
-    const mcStrength = (adjustments.microContrast / 100) * 0.42;
-    const rolloff = (adjustments.highlightRolloff / 100) * 0.75;
-    const rolloffThresh = 0.70;
+    // Pre-compute ALL constants outside the loop
+    const expMul     = Math.pow(2, adj.exposure / 50);
+    const doExp      = expMul !== 1;
+    const brightAdd  = (adj.brightness / 100) * 0.18;
+    const contK      = 1 + adj.contrast / 100;
+    const doCont     = contK !== 1;
+    const hiAmt      = adj.highlights / 200;
+    const shAmt      = adj.shadows / 200;
+    const doHiSh     = hiAmt !== 0 || shAmt !== 0;
+    const satMul     = 1 + adj.saturation / 100;
+    const vibAmt     = adj.vibrance / 100;
+    const warmA      = (adj.warmth / 100) * 0.055;
+    const warmB      = (adj.warmth / 100) * 0.038;
+    const tintA      = (adj.tint / 100) * 0.045;
+    const chromaA    = warmA + tintA;
+    const hueRad     = (adj.hue / 360) * 2 * Math.PI;
+    const doHue      = hueRad !== 0;
+    const cosH       = Math.cos(hueRad);
+    const sinH       = Math.sin(hueRad);
+    const sepiaAmt   = adj.sepia / 100;
+    const doSepia    = sepiaAmt > 0;
+    const grayAmt    = adj.grayscale / 100;
+    const doGray     = grayAmt > 0;
+    const invAmt     = adj.invert / 100;
+    const doInv      = invAmt > 0;
+    const hrAmt      = adj.highlightRolloff / 100;
+    const doHR       = hrAmt > 0;
+    const stSH       = adj.splitToneShadow;
+    const stHH       = adj.splitToneHighlight;
+    // Pre-compute split tone trig (was per-pixel before — huge waste)
+    const doStSh     = stSH !== 0;
+    const stShRad    = (stSH / 360) * 2 * Math.PI;
+    const stShCos    = Math.cos(stShRad) * 0.045;
+    const stShSin    = Math.sin(stShRad) * 0.045;
+    const doStHi     = stHH !== 0;
+    const stHiRad    = (stHH / 360) * 2 * Math.PI;
+    const stHiCos    = Math.cos(stHiRad) * 0.040;
+    const stHiSin    = Math.sin(stHiRad) * 0.040;
+    const SUBK       = 0.14;
 
-    for (let i = 0; i < px.length; i += 4) {
-      let r = px[i], g = px[i + 1], b = px[i + 2];
+    for (let i = 0; i < N; i++) {
+      const ri = i << 2; // i * 4, faster
+      rgb8ToOklab(px[ri], px[ri + 1], px[ri + 2]);
+      let L = _oL, a = _oa, b = _ob;
 
-      // — Exposure in linear light ——————————————————————————————
-      if (adjustments.exposure !== 0) {
-        r = linearToGamma8(TO_LINEAR[r] * expMul);
-        g = linearToGamma8(TO_LINEAR[g] * expMul);
-        b = linearToGamma8(TO_LINEAR[b] * expMul);
+      // Exposure (linear-light multiply, back to Oklab)
+      if (doExp) {
+        const [rl, gl, bl] = oklabToLinRgb(L, a, b);
+        linRgbToOklab(clamp01(rl * expMul), clamp01(gl * expMul), clamp01(bl * expMul));
+        L = _oL; a = _oa; b = _ob;
       }
 
-      // — Highlights / Shadows (parametric curve) ——————————————
-      if (adjustments.highlights !== 0 || adjustments.shadows !== 0) {
-        const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-        // Highlight: affects bright areas (lum > 0.5)
-        if (adjustments.highlights !== 0) {
-          const hFactor = Math.pow(Math.max(0, lum - 0.4) / 0.6, 1.5) * hiAmt;
-          r = clamp(r + hFactor * 255);
-          g = clamp(g + hFactor * 255);
-          b = clamp(b + hFactor * 255);
+      // Brightness
+      L = clamp01(L + brightAdd);
+
+      // Contrast (pivot 0.5)
+      if (doCont) L = clamp01((L - 0.5) * contK + 0.5);
+
+      // Zone-weighted shadows / highlights
+      if (doHiSh) {
+        const sw = shadowW(L);
+        const hw = highlightW(L);
+        if (shAmt !== 0) L = clamp01(L + shAmt * sw);
+        if (hiAmt !== 0) L = clamp01(L + hiAmt * hw);
+      }
+
+      // Highlight rolloff (shoulder compression)
+      if (doHR && L > 0.72) {
+        const t = (L - 0.72) / 0.28;
+        L = clamp01(L - t * t * hrAmt * 0.12);
+      }
+
+      // Warmth + tint (pre-summed)
+      a += chromaA;
+      b += warmB;
+
+      // Hue rotation
+      if (doHue) {
+        const na = a * cosH - b * sinH;
+        b = a * sinH + b * cosH;
+        a = na;
+      }
+
+      // Saturation + vibrance + subtractive mixing
+      const C_old  = Math.sqrt(a * a + b * b);
+      const vibMul = vibAmt > 0
+        ? 1 + vibAmt * Math.max(0, 1 - C_old * 2.5)
+        : 1 + vibAmt * 0.6;
+      const totMul = Math.max(0.01, satMul * Math.max(0.01, vibMul));
+      a *= totMul; b *= totMul;
+      const C_new = Math.sqrt(a * a + b * b);
+      L = clamp01(L - SUBK * Math.max(0, C_new - C_old));
+
+      // Sepia
+      if (doSepia) {
+        const inv_s = 1 - sepiaAmt;
+        a = a * inv_s + 0.052 * sepiaAmt;
+        b = b * inv_s + 0.028 * sepiaAmt;
+      }
+
+      // Grayscale
+      if (doGray) { a *= (1 - grayAmt); b *= (1 - grayAmt); }
+
+      // Split tone — pre-computed trig
+      if (doStSh) {
+        const sw = shadowW(L);
+        if (sw > 0.01) {
+          const w = sw * 0.5;
+          const w1 = 1 - w;
+          a = a * w1 + stShCos * w;
+          b = b * w1 + stShSin * w;
         }
-        // Shadow: affects dark areas (lum < 0.5)
-        if (adjustments.shadows !== 0) {
-          const sFactor = Math.pow(Math.max(0, 0.6 - lum) / 0.6, 1.5) * shAmt;
-          r = clamp(r + sFactor * 255);
-          g = clamp(g + sFactor * 255);
-          b = clamp(b + sFactor * 255);
+      }
+      if (doStHi) {
+        const hw = highlightW(L);
+        if (hw > 0.01) {
+          const w = hw * 0.4;
+          const w1 = 1 - w;
+          a = a * w1 + stHiCos * w;
+          b = b * w1 + stHiSin * w;
         }
       }
 
-      // — Brightness ————————————————————————————————————————————
-      if (adjustments.brightness !== 0) {
-        r = clamp(r * brightMul);
-        g = clamp(g * brightMul);
-        b = clamp(b * brightMul);
+      // Invert
+      if (doInv) {
+        L = L + (1 - 2 * L) * invAmt;
+        a *= (1 - invAmt);
+        b *= (1 - invAmt);
       }
 
-      // — Contrast (S-curve around 0.5) ————————————————————————
-      if (adjustments.contrast !== 0) {
-        r = clamp((r / 255 - 0.5) * contrastFactor * 255 + 127.5);
-        g = clamp((g / 255 - 0.5) * contrastFactor * 255 + 127.5);
-        b = clamp((b / 255 - 0.5) * contrastFactor * 255 + 127.5);
-      }
-
-      // — Warmth (temperature on R-B axis) ——————————————————————
-      if (adjustments.warmth !== 0) {
-        r = clamp(r + warmth * 28);
-        g = clamp(g + warmth * 8);
-        b = clamp(b - warmth * 28);
-      }
-
-      // — Tint (magenta-green axis) —————————————————————————————
-      if (adjustments.tint !== 0) {
-        r = clamp(r + tint * 12);
-        g = clamp(g - tint * 20);
-        b = clamp(b + tint * 12);
-      }
-
-      // — Saturation + Vibrance (HSL-based) —————————————————————
-      if (adjustments.saturation !== 0 || adjustments.vibrance !== 0) {
-        let [h, s, l] = rgbToHsl(r, g, b);
-        if (adjustments.saturation !== 0) {
-          s = clamp01(s * satAmt);
-        }
-        if (adjustments.vibrance !== 0) {
-          // Vibrance boosts desaturated colors more
-          const boost = (1 - s) * vibAmt * 0.6;
-          s = clamp01(s + boost);
-        }
-        [r, g, b] = hslToRgb(h, s, l);
-      }
-
-      // — Hue rotation ———————————————————————————————————————————
-      if (adjustments.hue !== 0) {
-        let [h, s, l] = rgbToHsl(r, g, b);
-        h = (h + hueShiftRad / (2 * Math.PI) + 1) % 1;
-        [r, g, b] = hslToRgb(h, s, l);
-      }
-
-      // — Sepia ——————————————————————————————————————————————————
-      if (adjustments.sepia > 0) {
-        const sr = clamp(r * (1 - sepiaAmt) + (r * 0.393 + g * 0.769 + b * 0.189) * sepiaAmt);
-        const sg = clamp(g * (1 - sepiaAmt) + (r * 0.349 + g * 0.686 + b * 0.168) * sepiaAmt);
-        const sb = clamp(b * (1 - sepiaAmt) + (r * 0.272 + g * 0.534 + b * 0.131) * sepiaAmt);
-        r = sr; g = sg; b = sb;
-      }
-
-      // — Grayscale ——————————————————————————————————————————————
-      if (adjustments.grayscale > 0) {
-        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-        r = clamp(r * (1 - grayAmt) + gray * grayAmt);
-        g = clamp(g * (1 - grayAmt) + gray * grayAmt);
-        b = clamp(b * (1 - grayAmt) + gray * grayAmt);
-      }
-
-      // — Invert ————————————————————————————————————————————————
-      if (adjustments.invert > 0) {
-        r = clamp(r * (1 - invertAmt) + (255 - r) * invertAmt);
-        g = clamp(g * (1 - invertAmt) + (255 - g) * invertAmt);
-        b = clamp(b * (1 - invertAmt) + (255 - b) * invertAmt);
-      }
-
-      // — Micro-contrast (local S-curve — Leica 3D pop) —————————
-      if (adjustments.microContrast > 0) {
-        const rv = r / 255, gv = g / 255, bv = b / 255;
-        const curved = (v: number) => v + mcStrength * (v - 0.5) * (1 - Math.pow(Math.abs(v - 0.5) * 1.8, 1.3));
-        r = clamp(curved(rv) * 255);
-        g = clamp(curved(gv) * 255);
-        b = clamp(curved(bv) * 255);
-      }
-
-      // — Highlight rolloff (film shoulder — exponential) ————————
-      if (adjustments.highlightRolloff > 0) {
-        const applyRolloff = (v: number) => {
-          if (v <= rolloffThresh) return v;
-          const excess = (v - rolloffThresh) / (1 - rolloffThresh);
-          return rolloffThresh + (1 - rolloffThresh) * (1 - Math.exp(-excess * (2 - rolloff)));
-        };
-        r = clamp(applyRolloff(r / 255) * 255);
-        g = clamp(applyRolloff(g / 255) * 255);
-        b = clamp(applyRolloff(b / 255) * 255);
-      }
-
-      px[i] = r; px[i + 1] = g; px[i + 2] = b;
+      oklabToRgb8(L, a, b);
+      px[ri] = _r8; px[ri + 1] = _g8; px[ri + 2] = _b8;
     }
 
     ctx.putImageData(d, 0, 0);
@@ -312,432 +386,509 @@ export async function renderToCanvas(
 
   await yld();
 
-  // ── Step 4: Clarity (large-radius local contrast boost) ───────────────────
-  if (adjustments.clarity !== 0) {
-    const amt = adjustments.clarity / 100;
-    const radius = Math.max(1, Math.round(W * 0.025)); // ~2.5% of width
-    const [blurC, blurX] = tmpCanvas(W, H);
-    blurX.filter = `blur(${radius}px)`;
-    blurX.drawImage(canvas, 0, 0);
-    blurX.filter = 'none';
-    const orig = ctx.getImageData(0, 0, W, H);
-    const blur = blurX.getImageData(0, 0, W, H);
-    const out = ctx.createImageData(W, H);
-    for (let i = 0; i < orig.data.length; i += 4) {
-      for (let ch = 0; ch < 3; ch++) {
-        const diff = orig.data[i + ch] - blur.data[i + ch];
-        out.data[i + ch] = clamp(orig.data[i + ch] + diff * amt * 1.8);
-      }
-      out.data[i + 3] = orig.data[i + 3];
+  // ══════════════════════════════════════════════════════════════════════════
+  // Step 4: MERGED DETAIL PASS — micro-contrast + clarity + sharpness + detail
+  //
+  // All four share the same L-channel extraction. We extract once, blur at
+  // multiple radii, then apply all boosts in a single write-back loop.
+  // This avoids 4 separate getImageData/putImageData round-trips and
+  // 4 separate Oklab conversions.
+  // ══════════════════════════════════════════════════════════════════════════
+  const needMicro = adj.microContrast > 0;
+  const needClarity = adj.clarity !== 0;
+  const needSharp = adj.sharpness > 0;
+  const needDetail = adj.detail > 0;
+
+  if (needMicro || needClarity || needSharp || needDetail) {
+    const d  = ctx.getImageData(0, 0, W, H);
+    const px = d.data;
+
+    // Extract L channel once
+    const Lch = getBuffer(N);
+    for (let i = 0; i < N; i++) {
+      rgb8ToOklab(px[i << 2], px[(i << 2) + 1], px[(i << 2) + 2]);
+      Lch[i] = _oL;
     }
-    ctx.putImageData(out, 0, 0);
-    void blurC;
+
+    await yld();
+
+    // Compute blurred versions at required radii
+    // Micro-contrast: fine (r0) + medium (r1) Laplacian pyramid
+    const r_mc0  = needMicro ? Math.max(1, Math.round(W * 0.004)) : 0;
+    const r_mc1  = needMicro ? Math.max(2, Math.round(W * 0.015)) : 0;
+    // Clarity: medium-scale USM
+    const r_clar = needClarity ? Math.max(2, Math.round(W * 0.022)) : 0;
+    // Sharpness: fine edge
+    const r_shrp = needSharp ? Math.max(1, Math.round(W * 0.005)) : 0;
+    // Detail: very fine texture
+    const r_det  = needDetail ? Math.max(1, Math.round(W * 0.002)) : 0;
+
+    // Collect unique radii to blur (avoid blurring the same radius twice)
+    const radiiSet = new Set<number>();
+    if (needMicro)   { radiiSet.add(r_mc0); radiiSet.add(r_mc1); }
+    if (needClarity) radiiSet.add(r_clar);
+    if (needSharp)   radiiSet.add(r_shrp);
+    if (needDetail)  radiiSet.add(r_det);
+
+    const blurCache = new Map<number, Float32Array>();
+
+    // We need cascaded blurs for micro-contrast (base0 → base1)
+    // but separate blurs for the others from original L
+    let base0: Float32Array | null = null;
+    let base1: Float32Array | null = null;
+
+    if (needMicro) {
+      base0 = blur(Lch, W, H, r_mc0); await yld();
+      base1 = blur(base0, W, H, r_mc1); await yld();
+      blurCache.set(r_mc0, base0);
+    }
+
+    // Blur remaining radii from original L (skip if already done as r_mc0)
+    for (const r of radiiSet) {
+      if (blurCache.has(r)) continue;
+      if (r === r_mc1 && base1) { blurCache.set(r, base1); continue; }
+      const bl = blur(Lch, W, H, r); await yld();
+      blurCache.set(r, bl);
+    }
+
+    // Pre-compute boost coefficients
+    const mcFine = needMicro ? (adj.microContrast / 100) * 0.55 : 0;
+    const mcMid  = needMicro ? (adj.microContrast / 100) * 0.90 : 0;
+    const clarK  = needClarity ? (adj.clarity / 100) * 0.45 : 0;
+    const shrpK  = needSharp ? (adj.sharpness / 100) * 0.55 : 0;
+    const detK   = needDetail ? (adj.detail / 100) * 0.45 : 0;
+
+    // Halo suppression soft clamp
+    const softClamp = (v: number, max: number) => {
+      const abs = v < 0 ? -v : v;
+      return abs <= max ? v : (v < 0 ? -1 : 1) * (max + (abs - max) * 0.08);
+    };
+
+    const b0 = needMicro && base0 ? base0 : null;
+    const b1 = needMicro && base1 ? base1 : null;
+    const bClar = needClarity ? blurCache.get(r_clar)! : null;
+    const bShrp = needSharp   ? blurCache.get(r_shrp)! : null;
+    const bDet  = needDetail  ? blurCache.get(r_det)!  : null;
+
+    // Single write-back pass
+    for (let i = 0; i < N; i++) {
+      const ri = i << 2;
+      rgb8ToOklab(px[ri], px[ri + 1], px[ri + 2]);
+      let L = _oL;
+      const origL = Lch[i];
+
+      // Micro-contrast (Laplacian pyramid)
+      if (b0 && b1) {
+        L += softClamp(origL - b0[i], 0.10) * mcFine;
+        L += softClamp(b0[i] - b1[i], 0.10) * mcMid;
+      }
+      // Clarity
+      if (bClar) {
+        const e = origL - bClar[i];
+        L += softClamp(e, 0.15) * clarK;
+      }
+      // Sharpness
+      if (bShrp) {
+        const e = origL - bShrp[i];
+        L += softClamp(e, 0.09) * shrpK;
+      }
+      // Detail
+      if (bDet) {
+        const e = origL - bDet[i];
+        L += softClamp(e, 0.06) * detK;
+      }
+
+      oklabToRgb8(clamp01(L), _oa, _ob);
+      px[ri] = _r8; px[ri + 1] = _g8; px[ri + 2] = _b8;
+    }
+
+    // Free pooled buffers
+    freeBuffer(Lch);
+    for (const b of blurCache.values()) freeBuffer(b);
+    if (base1 && !blurCache.has(r_mc1)) freeBuffer(base1);
+
+    ctx.putImageData(d, 0, 0);
+    await yld();
   }
 
-  // ── Step 5: Sharpness (adaptive unsharp mask) ──────────────────────────────
-  if (adjustments.sharpness > 0) {
-    const amt = adjustments.sharpness / 100;
-    // Fine detail pass (small radius)
-    const [, blurX1] = tmpCanvas(W, H);
-    blurX1.filter = `blur(${0.6 + amt * 0.8}px)`;
-    blurX1.drawImage(canvas, 0, 0);
-    blurX1.filter = 'none';
-    const orig = ctx.getImageData(0, 0, W, H);
-    const blur1 = blurX1.getImageData(0, 0, W, H);
-    const out = ctx.createImageData(W, H);
-    for (let i = 0; i < orig.data.length; i += 4) {
-      for (let ch = 0; ch < 3; ch++) {
-        const edge = orig.data[i + ch] - blur1.data[i + ch];
-        // Adaptive strength: boost edges more, avoid halos
-        const edgeAbs = Math.abs(edge);
-        const boost = amt * (1.2 + edgeAbs / 60);
-        out.data[i + ch] = clamp(orig.data[i + ch] + edge * boost);
-      }
-      out.data[i + 3] = orig.data[i + 3];
+  // ── Step 5: Dehaze ────────────────────────────────────────────────────────
+  if (adj.dehaze !== 0) {
+    const d  = ctx.getImageData(0, 0, W, H);
+    const px = d.data;
+    const k  = adj.dehaze / 100;
+    const aMul = 1 + 0.12 * k;
+    const bMul = 1 + 0.08 * k;
+    const cMul = 1 + 0.28 * k;
+    const off  = -0.07 * k;
+    for (let i = 0; i < N; i++) {
+      const ri = i << 2;
+      rgb8ToOklab(px[ri], px[ri + 1], px[ri + 2]);
+      oklabToRgb8(
+        clamp01((_oL + off - 0.5) * cMul + 0.5),
+        _oa * aMul,
+        _ob * bMul,
+      );
+      px[ri] = _r8; px[ri + 1] = _g8; px[ri + 2] = _b8;
     }
-    ctx.putImageData(out, 0, 0);
+    ctx.putImageData(d, 0, 0);
+    await yld();
   }
 
-  // ── Step 6: Detail (fine texture accentuation) ────────────────────────────
-  if (adjustments.detail > 0) {
-    const amt = adjustments.detail / 100;
-    const [, blurX] = tmpCanvas(W, H);
-    blurX.filter = `blur(${1.2 + amt * 1.5}px)`;
-    blurX.drawImage(canvas, 0, 0);
-    blurX.filter = 'none';
-    const orig = ctx.getImageData(0, 0, W, H);
-    const blur = blurX.getImageData(0, 0, W, H);
-    const out = ctx.createImageData(W, H);
-    for (let i = 0; i < orig.data.length; i += 4) {
-      for (let ch = 0; ch < 3; ch++) {
-        const diff = orig.data[i + ch] - blur.data[i + ch];
-        // Only boost fine details (small differences), not large structures
-        const fine = Math.sign(diff) * Math.min(Math.abs(diff), 35);
-        out.data[i + ch] = clamp(orig.data[i + ch] + fine * amt * 2.5);
-      }
-      out.data[i + 3] = orig.data[i + 3];
+  // ══════════════════════════════════════════════════════════════════════════
+  // Step 6: Physical Halation (multi-scale PSF, per-channel R>G>B radii)
+  //
+  // Optimised: reuse buffers, single highlight extraction per scale,
+  // extract channels once, accumulate in-place.
+  // ══════════════════════════════════════════════════════════════════════════
+  if (adj.halation > 0) {
+    const d  = ctx.getImageData(0, 0, W, H);
+    const px = d.data;
+
+    // Extract linear channels once
+    const rC = getBuffer(N), gC = getBuffer(N), bC = getBuffer(N);
+    for (let i = 0; i < N; i++) {
+      rC[i] = TO_LINEAR[px[i << 2]];
+      gC[i] = TO_LINEAR[px[(i << 2) + 1]];
+      bC[i] = TO_LINEAR[px[(i << 2) + 2]];
     }
-    ctx.putImageData(out, 0, 0);
+
+    const baseR = Math.max(2, Math.round((adj.halation / 100) * W * 0.018));
+    const hR = getBuffer(N), hG = getBuffer(N), hB = getBuffer(N);
+    const rH = getBuffer(N), gH = getBuffer(N), bH = getBuffer(N);
+
+    const scales = [
+      { rMul: 1.0, w: 0.50 },
+      { rMul: 2.8, w: 0.32 },
+      { rMul: 7.0, w: 0.18 },
+    ];
+
+    for (const { rMul, w } of scales) {
+      // Highlight mask + channel extraction (reuse buffers)
+      for (let i = 0; i < N; i++) {
+        const lum  = 0.2126 * rC[i] + 0.7152 * gC[i] + 0.0722 * bC[i];
+        const mask = clamp01((lum - 0.5) * 2);
+        rH[i] = rC[i] * mask;
+        gH[i] = gC[i] * mask;
+        bH[i] = bC[i] * mask;
+      }
+
+      const rr = Math.max(1, Math.round(baseR * rMul * 1.00));
+      const rg = Math.max(1, Math.round(baseR * rMul * 0.62));
+      const rb = Math.max(1, Math.round(baseR * rMul * 0.30));
+
+      const bR = blur(rH, W, H, rr); await yld();
+      const bG = blur(gH, W, H, rg); await yld();
+      const bB = blur(bH, W, H, rb); await yld();
+
+      for (let i = 0; i < N; i++) {
+        hR[i] += bR[i] * w;
+        hG[i] += bG[i] * w;
+        hB[i] += bB[i] * w;
+      }
+      freeBuffer(bR); freeBuffer(bG); freeBuffer(bB);
+    }
+
+    const str = (adj.halation / 100) * 0.75;
+    for (let i = 0; i < N; i++) {
+      const ri = i << 2;
+      px[ri]     = lin2g(clamp01(rC[i] + hR[i] * str * 1.25));
+      px[ri + 1] = lin2g(clamp01(gC[i] + hG[i] * str * 0.80));
+      px[ri + 2] = lin2g(clamp01(bC[i] + hB[i] * str * 0.35));
+    }
+    freeBuffer(rC); freeBuffer(gC); freeBuffer(bC);
+    freeBuffer(hR); freeBuffer(hG); freeBuffer(hB);
+    freeBuffer(rH); freeBuffer(gH); freeBuffer(bH);
+    ctx.putImageData(d, 0, 0);
+    await yld();
   }
 
-  await yld();
-
-  // ── Step 7: Dehaze (contrast + sat + shadow lift) ─────────────────────────
-  if (adjustments.dehaze !== 0) {
-    const amt = adjustments.dehaze / 100;
+  // ── Step 7: Bloom (highlight glow) ────────────────────────────────────────
+  if (adj.bloom > 0) {
     const d = ctx.getImageData(0, 0, W, H);
     const px = d.data;
-    for (let i = 0; i < px.length; i += 4) {
-      let r = px[i], g = px[i + 1], b = px[i + 2];
-      // Contrast + shadow lift + slight saturation boost
-      r = clamp((r / 255 - 0.5) * (1 + amt * 0.4) * 255 + 127.5 + amt * 10);
-      g = clamp((g / 255 - 0.5) * (1 + amt * 0.4) * 255 + 127.5 + amt * 10);
-      b = clamp((b / 255 - 0.5) * (1 + amt * 0.4) * 255 + 127.5 + amt * 10);
-      // Vibrance boost for dehaze
-      let [h, s, l] = rgbToHsl(r, g, b);
-      s = clamp01(s + (1 - s) * amt * 0.25);
-      [r, g, b] = hslToRgb(h, s, l);
-      px[i] = r; px[i + 1] = g; px[i + 2] = b;
+    const rC = getBuffer(N), gC = getBuffer(N), bC = getBuffer(N);
+    for (let i = 0; i < N; i++) {
+      const lum  = 0.2126 * TO_LINEAR[px[i<<2]] + 0.7152 * TO_LINEAR[px[(i<<2)+1]] + 0.0722 * TO_LINEAR[px[(i<<2)+2]];
+      const mask = clamp01((lum - 0.58) * 2.8);
+      rC[i] = TO_LINEAR[px[i<<2]]   * mask;
+      gC[i] = TO_LINEAR[px[(i<<2)+1]] * mask;
+      bC[i] = TO_LINEAR[px[(i<<2)+2]] * mask;
     }
+    const br = Math.max(2, Math.round(W * 0.026));
+    const bR = blur(rC, W, H, br); await yld();
+    const bG = blur(gC, W, H, br);
+    const bB = blur(bC, W, H, br);
+    const str = (adj.bloom / 100) * 0.48;
+    for (let i = 0; i < N; i++) {
+      const ri = i << 2;
+      px[ri]     = lin2g(clamp01(TO_LINEAR[px[ri]]     + bR[i] * str));
+      px[ri + 1] = lin2g(clamp01(TO_LINEAR[px[ri + 1]] + bG[i] * str));
+      px[ri + 2] = lin2g(clamp01(TO_LINEAR[px[ri + 2]] + bB[i] * str));
+    }
+    freeBuffer(rC); freeBuffer(gC); freeBuffer(bC);
+    freeBuffer(bR); freeBuffer(bG); freeBuffer(bB);
     ctx.putImageData(d, 0, 0);
+    await yld();
   }
 
-  // ── Step 8: Portrait Glow ─────────────────────────────────────────────────
-  if (adjustments.portraitGlow > 0) {
-    const amt = adjustments.portraitGlow / 100;
-    const [pgC, pgX] = tmpCanvas(W, H);
-    pgX.filter = `blur(${10 + amt * 20}px) brightness(1.15) saturate(1.2)`;
-    pgX.drawImage(canvas, 0, 0);
-    pgX.filter = 'none';
-    ctx.globalCompositeOperation = 'screen';
-    ctx.globalAlpha = amt * 0.28;
-    ctx.drawImage(pgC, 0, 0);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
-    // Warm color wash
-    ctx.globalCompositeOperation = 'soft-light';
-    ctx.fillStyle = `rgba(255, 218, 155, ${amt * 0.18})`;
-    ctx.fillRect(0, 0, W, H);
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  // ── Step 9: Posterize ─────────────────────────────────────────────────────
-  if (adjustments.posterize > 0) {
-    const levels = Math.max(2, Math.round(32 - (adjustments.posterize / 100) * 29));
-    const step = 255 / (levels - 1);
+  // ── Step 8: Soft Focus ────────────────────────────────────────────────────
+  if (adj.softFocus > 0) {
     const d = ctx.getImageData(0, 0, W, H);
-    for (let i = 0; i < d.data.length; i += 4) {
-      d.data[i]   = Math.round(Math.round(d.data[i]   / step) * step);
-      d.data[i+1] = Math.round(Math.round(d.data[i+1] / step) * step);
-      d.data[i+2] = Math.round(Math.round(d.data[i+2] / step) * step);
+    const px = d.data;
+    const rC = getBuffer(N), gC = getBuffer(N), bC = getBuffer(N);
+    for (let i = 0; i < N; i++) {
+      rC[i] = TO_LINEAR[px[i<<2]]; gC[i] = TO_LINEAR[px[(i<<2)+1]]; bC[i] = TO_LINEAR[px[(i<<2)+2]];
+    }
+    const sr = Math.max(2, Math.round(W * 0.016));
+    const bR = blur(rC, W, H, sr); await yld();
+    const bG = blur(gC, W, H, sr);
+    const bB = blur(bC, W, H, sr);
+    const mix = (adj.softFocus / 100) * 0.48, inv = 1 - mix;
+    for (let i = 0; i < N; i++) {
+      const ri = i << 2;
+      px[ri]     = lin2g(rC[i] * inv + bR[i] * mix);
+      px[ri + 1] = lin2g(gC[i] * inv + bG[i] * mix);
+      px[ri + 2] = lin2g(bC[i] * inv + bB[i] * mix);
+    }
+    freeBuffer(rC); freeBuffer(gC); freeBuffer(bC);
+    freeBuffer(bR); freeBuffer(bG); freeBuffer(bB);
+    ctx.putImageData(d, 0, 0);
+    await yld();
+  }
+
+  // ── Step 9: Portrait Glow ─────────────────────────────────────────────────
+  if (adj.portraitGlow > 0) {
+    const d = ctx.getImageData(0, 0, W, H);
+    const px = d.data;
+    const rC = getBuffer(N), gC = getBuffer(N), bC = getBuffer(N);
+    for (let i = 0; i < N; i++) {
+      rC[i] = TO_LINEAR[px[i<<2]]; gC[i] = TO_LINEAR[px[(i<<2)+1]]; bC[i] = TO_LINEAR[px[(i<<2)+2]];
+    }
+    const pr = Math.max(3, Math.round(W * 0.042));
+    const bR = blur(rC, W, H, pr); await yld();
+    const bG = blur(gC, W, H, pr);
+    const bB = blur(bC, W, H, pr);
+    const mix = (adj.portraitGlow / 100) * 0.32;
+    for (let i = 0; i < N; i++) {
+      const ri = i << 2;
+      px[ri]     = lin2g(clamp01(rC[i] + bR[i] * mix * 1.08));
+      px[ri + 1] = lin2g(clamp01(gC[i] + bG[i] * mix * 0.95));
+      px[ri + 2] = lin2g(clamp01(bC[i] + bB[i] * mix * 0.78));
+    }
+    freeBuffer(rC); freeBuffer(gC); freeBuffer(bC);
+    freeBuffer(bR); freeBuffer(bG); freeBuffer(bB);
+    ctx.putImageData(d, 0, 0);
+    await yld();
+  }
+
+  // ── Step 10: Zone-Aware Grain ─────────────────────────────────────────────
+  if (adj.grain > 0) {
+    const d = ctx.getImageData(0, 0, W, H);
+    const px = d.data;
+    const swing = (adj.grain / 100) * 0.044;
+    _ni = (Math.random() * NTBL) | 0;
+    for (let i = 0; i < N; i++) {
+      const ri = i << 2;
+      rgb8ToOklab(px[ri], px[ri + 1], px[ri + 2]);
+      oklabToRgb8(clamp01(_oL + fgauss() * zoneGrainAmp(_oL) * swing), _oa, _ob);
+      px[ri] = _r8; px[ri + 1] = _g8; px[ri + 2] = _b8;
     }
     ctx.putImageData(d, 0, 0);
+    await yld();
   }
 
-  // ── Step 10: Bloom ────────────────────────────────────────────────────────
-  if (adjustments.bloom > 0) {
-    const amt = adjustments.bloom / 100;
-    // Extract highlights only for a more realistic bloom
-    const [hC, hX] = tmpCanvas(W, H);
-    hX.drawImage(canvas, 0, 0);
-    hX.globalCompositeOperation = 'multiply';
-    hX.fillStyle = `rgba(0,0,0,${1 - amt * 0.4})`; // darken non-bright areas
-    hX.fillRect(0, 0, W, H);
-    hX.globalCompositeOperation = 'source-over';
-    const [bC, bX] = tmpCanvas(W, H);
-    bX.filter = `brightness(1.4) blur(${8 + amt * 22}px)`;
-    bX.drawImage(hC, 0, 0);
-    bX.filter = 'none';
-    ctx.globalCompositeOperation = 'screen';
-    ctx.globalAlpha = amt * 0.5;
-    ctx.drawImage(bC, 0, 0);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
-    void bC;
-  }
+  // ══════════════════════════════════════════════════════════════════════════
+  // Step 11: MERGED PER-PIXEL EFFECTS (fade + vignette — single pass)
+  //
+  // Both are simple per-pixel multiplies. Merging avoids a second
+  // getImageData/putImageData round-trip.
+  // ══════════════════════════════════════════════════════════════════════════
+  if (adj.fade > 0 || adj.vignette > 0) {
+    const d  = ctx.getImageData(0, 0, W, H);
+    const px = d.data;
+    const fadeK = (adj.fade / 100) * 0.20;
+    const doFade = fadeK > 0;
+    const vigStr = adj.vignette / 100;
+    const doVig  = vigStr > 0;
+    const cx = W / 2, cy = H / 2;
+    const invCx = 1 / cx, invCy = 1 / cy;
 
-  // ── Step 11: Halation (warm glow on bright edges) ─────────────────────────
-  if (adjustments.halation > 0) {
-    const amt = adjustments.halation / 100;
-    const [hC, hX] = tmpCanvas(W, H);
-    hX.filter = `brightness(1.6) blur(${12 + amt * 28}px) saturate(1.8) hue-rotate(-20deg)`;
-    hX.drawImage(canvas, 0, 0);
-    hX.filter = 'none';
-    // Tint red-orange (film emulsion glow color)
-    hX.globalCompositeOperation = 'multiply';
-    hX.fillStyle = `rgba(255, 110, 50, ${0.4 + amt * 0.3})`;
-    hX.fillRect(0, 0, W, H);
-    hX.globalCompositeOperation = 'source-over';
-    ctx.globalCompositeOperation = 'screen';
-    ctx.globalAlpha = amt * 0.55;
-    ctx.drawImage(hC, 0, 0);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  // ── Step 12: Soft Focus ────────────────────────────────────────────────────
-  if (adjustments.softFocus > 0) {
-    const amt = adjustments.softFocus / 100;
-    const [sC, sX] = tmpCanvas(W, H);
-    sX.filter = `blur(${2 + amt * 12}px) brightness(1.08)`;
-    sX.drawImage(canvas, 0, 0);
-    sX.filter = 'none';
-    ctx.globalCompositeOperation = 'screen';
-    ctx.globalAlpha = amt * 0.42;
-    ctx.drawImage(sC, 0, 0);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  await yld();
-
-  // ── Step 13: Chromatic Aberration (RGB channel split + green fringe) ───────
-  if (adjustments.chromaticAberration > 0) {
-    const shift = Math.max(1, Math.round(W * (adjustments.chromaticAberration / 100) * 0.018));
-    const o = ctx.getImageData(0, 0, W, H);
-    const out = ctx.createImageData(W, H);
     for (let y = 0; y < H; y++) {
+      const dy = (y - cy) * invCy;
+      const dy2 = dy * dy;
       for (let x = 0; x < W; x++) {
-        const i = (y * W + x) * 4;
-        // Red channel: shifted right
-        const rx = Math.min(W - 1, x + shift);
-        const ri = (y * W + rx) * 4;
-        // Blue channel: shifted left
-        const bx = Math.max(0, x - shift);
-        const bi = (y * W + bx) * 4;
-        // Green channel: slight opposite shift (realistic lens CA)
-        const gx = clamp(x + Math.round(shift * 0.3), 0, W - 1);
-        const gi = (y * W + gx) * 4;
-        out.data[i]     = o.data[ri];
-        out.data[i + 1] = o.data[gi + 1];
-        out.data[i + 2] = o.data[bi + 2];
-        out.data[i + 3] = o.data[i + 3];
-      }
-    }
-    ctx.putImageData(out, 0, 0);
-  }
+        const ri = (y * W + x) << 2;
+        let r = TO_LINEAR[px[ri]], g = TO_LINEAR[px[ri + 1]], b = TO_LINEAR[px[ri + 2]];
 
-  // ── Step 14: Dispersion (radial prismatic spread) ─────────────────────────
-  if (adjustments.dispersion > 0) {
-    const amt = adjustments.dispersion / 100;
-    const maxShift = Math.max(1, Math.round(W * amt * 0.025));
-    const cx2 = W / 2, cy2 = H / 2;
-    const o = ctx.getImageData(0, 0, W, H);
-    const out = ctx.createImageData(W, H);
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const i = (y * W + x) * 4;
-        const dx = (x - cx2) / cx2, dy = (y - cy2) / cy2;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const s = Math.round(maxShift * dist);
-        const rx = clamp(x + Math.round(dx * s), 0, W - 1);
-        const ry = clamp(y + Math.round(dy * s), 0, H - 1);
-        const bx = clamp(x - Math.round(dx * s), 0, W - 1);
-        const by = clamp(y - Math.round(dy * s), 0, H - 1);
-        const ri = (ry * W + rx) * 4;
-        const bi = (by * W + bx) * 4;
-        out.data[i]     = o.data[ri];
-        out.data[i + 1] = o.data[i + 1];
-        out.data[i + 2] = o.data[bi + 2];
-        out.data[i + 3] = o.data[i + 3];
-      }
-    }
-    ctx.putImageData(out, 0, 0);
-  }
+        // Fade (lift blacks)
+        if (doFade) {
+          const f1 = 1 - fadeK;
+          r = r * f1 + fadeK;
+          g = g * f1 + fadeK;
+          b = b * f1 + fadeK;
+        }
 
-  await yld();
+        // Vignette
+        if (doVig) {
+          const dx = (x - cx) * invCx;
+          const dist2 = dx * dx + dy2;
+          const vig = clamp01(1 - vigStr * Math.pow(dist2, 1.25) * 0.85);
+          r *= vig; g *= vig; b *= vig;
+        }
 
-  // ── Step 15: Split Toning (luminosity-based) ──────────────────────────────
-  if (adjustments.splitToneShadow !== 0 || adjustments.splitToneHighlight !== 0) {
-    const d = ctx.getImageData(0, 0, W, H);
-    const px = d.data;
-    const [shr, shg, shb] = adjustments.splitToneShadow !== 0 ? hueToRgbArr(adjustments.splitToneShadow) : [0, 0, 0];
-    const [hlr, hlg, hlb] = adjustments.splitToneHighlight !== 0 ? hueToRgbArr(adjustments.splitToneHighlight) : [0, 0, 0];
-
-    for (let i = 0; i < px.length; i += 4) {
-      const lum = (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) / 255;
-      // Shadow weight: max at lum=0, zero at lum=0.6
-      const sw = Math.max(0, 1 - lum / 0.6) * 0.22;
-      // Highlight weight: max at lum=1, zero at lum=0.4
-      const hw = Math.max(0, (lum - 0.4) / 0.6) * 0.20;
-
-      if (adjustments.splitToneShadow !== 0 && sw > 0) {
-        px[i]   = clamp(px[i]   * (1 - sw) + shr * sw);
-        px[i+1] = clamp(px[i+1] * (1 - sw) + shg * sw);
-        px[i+2] = clamp(px[i+2] * (1 - sw) + shb * sw);
-      }
-      if (adjustments.splitToneHighlight !== 0 && hw > 0) {
-        px[i]   = clamp(px[i]   * (1 - hw) + hlr * hw);
-        px[i+1] = clamp(px[i+1] * (1 - hw) + hlg * hw);
-        px[i+2] = clamp(px[i+2] * (1 - hw) + hlb * hw);
+        px[ri] = lin2g(r); px[ri + 1] = lin2g(g); px[ri + 2] = lin2g(b);
       }
     }
     ctx.putImageData(d, 0, 0);
   }
 
-  // ── Step 16: Film tint overlay ─────────────────────────────────────────────
-  if (filter.tintOverlay) {
-    ctx.fillStyle = filter.tintOverlay;
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  // ── Step 17: Shadow tint (radial multiply) ────────────────────────────────
-  if (filter.shadowTint) {
-    const [sc, sx] = tmpCanvas(W, H);
-    const g2 = sx.createRadialGradient(W / 2, H / 2, W * 0.2, W / 2, H / 2, Math.max(W, H) * 0.9);
-    g2.addColorStop(0, 'rgba(255,255,255,0.97)');
-    g2.addColorStop(1, filter.shadowTint);
-    sx.fillStyle = g2;
-    sx.fillRect(0, 0, W, H);
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.drawImage(sc, 0, 0);
+  // ── Step 12: Light Leak (canvas gradient, screen blend) ───────────────────
+  if (adj.lightLeak > 0) {
+    const [lc, lx] = tmpCanvas(W, H);
+    const s = (adj.lightLeak / 100) * 0.55;
+    const g = lx.createRadialGradient(W * 0.85, H * 0.08, 0, W * 0.85, H * 0.08, Math.max(W, H) * 1.1);
+    g.addColorStop(0,    `rgba(255,190,60,${s})`);
+    g.addColorStop(0.25, `rgba(255,110,30,${s * 0.65})`);
+    g.addColorStop(0.6,  `rgba(255,50,100,${s * 0.22})`);
+    g.addColorStop(1,    'rgba(0,0,0,0)');
+    lx.fillStyle = g; lx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'screen';
+    ctx.drawImage(lc, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
   }
 
-  // ── Step 18: Burn edges ────────────────────────────────────────────────────
-  if (filter.burnEdges && filter.burnEdges > 0) {
+  // ── Step 13: Film Burn ────────────────────────────────────────────────────
+  if (adj.filmBurn > 0) {
     const [bc, bx] = tmpCanvas(W, H);
-    const g2 = bx.createRadialGradient(W / 2, H / 2, W * 0.28, W / 2, H / 2, Math.max(W, H) * 0.82);
-    g2.addColorStop(0, 'rgba(255,255,255,1)');
-    g2.addColorStop(1, `rgba(0,0,0,${(filter.burnEdges / 100) * 0.9})`);
-    bx.fillStyle = g2;
-    bx.fillRect(0, 0, W, H);
+    const s = (adj.filmBurn / 100) * 0.65;
+    const g = bx.createRadialGradient(W / 2, H / 2, W * 0.22, W / 2, H / 2, W * 0.85);
+    g.addColorStop(0,    'rgba(0,0,0,0)');
+    g.addColorStop(0.65, `rgba(170,55,0,${s * 0.28})`);
+    g.addColorStop(1,    `rgba(90,15,0,${s})`);
+    bx.fillStyle = g; bx.fillRect(0, 0, W, H);
     ctx.globalCompositeOperation = 'multiply';
     ctx.drawImage(bc, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
   }
 
-  // ── Step 19: Fade (shadow lift, faded film look) ──────────────────────────
-  if (adjustments.fade > 0) {
-    // Fade = lift the blacks (reduce dynamic range)
-    const liftAmt = (adjustments.fade / 100) * 55;
-    const d = ctx.getImageData(0, 0, W, H);
+  // ── Step 14: Dust ─────────────────────────────────────────────────────────
+  if (adj.dust > 0) {
+    const d  = ctx.getImageData(0, 0, W, H);
     const px = d.data;
-    for (let i = 0; i < px.length; i += 4) {
-      const lum = (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) / 255;
-      const fadeFactor = Math.pow(1 - lum, 1.5); // lifts shadows more
-      px[i]   = clamp(px[i]   + fadeFactor * liftAmt);
-      px[i+1] = clamp(px[i+1] + fadeFactor * liftAmt);
-      px[i+2] = clamp(px[i+2] + fadeFactor * liftAmt);
+    const count = ((adj.dust / 100) * N * 0.00028) | 0;
+    for (let i = 0; i < count; i++) {
+      const x = (Math.random() * W) | 0, y = (Math.random() * H) | 0;
+      const sz = Math.random() < 0.72 ? 1 : 2;
+      const o = 0.35 + Math.random() * 0.55;
+      const io = 1 - o;
+      for (let dy = 0; dy < sz; dy++) {
+        for (let dx = 0; dx < sz; dx++) {
+          const ri = (Math.min(H - 1, y + dy) * W + Math.min(W - 1, x + dx)) << 2;
+          px[ri]     = (px[ri]     * io + 22 * o + 0.5) | 0;
+          px[ri + 1] = (px[ri + 1] * io + 16 * o + 0.5) | 0;
+          px[ri + 2] = (px[ri + 2] * io + 10 * o + 0.5) | 0;
+        }
+      }
     }
     ctx.putImageData(d, 0, 0);
   }
 
-  // ── Step 20: Vignette (smooth power-law falloff) ──────────────────────────
-  if (adjustments.vignette > 0) {
-    const amt = adjustments.vignette / 100;
-    const [vc, vx] = tmpCanvas(W, H);
-    const cx = W / 2, cy = H / 2;
-    // Elliptical radial gradient matching image aspect
-    const grd = vx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.72);
-    grd.addColorStop(0, 'rgba(0,0,0,0)');
-    grd.addColorStop(0.5, `rgba(0,0,0,${amt * 0.25})`);
-    grd.addColorStop(1, `rgba(0,0,0,${amt * 0.95})`);
-    vx.fillStyle = grd;
-    vx.fillRect(0, 0, W, H);
-    ctx.drawImage(vc, 0, 0);
-  }
-
-  await yld();
-
-  // ── Step 21: Grain (gaussian-distributed, luminance-aware) ────────────────
-  if (adjustments.grain > 0) {
-    const amt = adjustments.grain / 100;
-    const grainSize = Math.max(256, W); // tile at image width for fine grain
-    const [gc, gx] = tmpCanvas(grainSize, grainSize);
-    const nd = gx.createImageData(grainSize, grainSize);
-    for (let i = 0; i < nd.data.length; i += 4) {
-      // Gaussian grain: mean=128, sigma scaled by amount
-      const noise = gaussianRandom() * amt * 38 + 128;
-      const v = clamp(Math.round(noise));
-      nd.data[i] = nd.data[i + 1] = nd.data[i + 2] = v;
-      nd.data[i + 3] = Math.round(amt * 140); // alpha controls overall strength
-    }
-    gx.putImageData(nd, 0, 0);
-    ctx.globalCompositeOperation = 'overlay';
-    ctx.globalAlpha = amt * 0.65;
-    const pattern = ctx.createPattern(gc, 'repeat')!;
-    ctx.fillStyle = pattern;
-    ctx.fillRect(0, 0, W, H);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  // ── Step 22: Light Leak (top-left corner) ─────────────────────────────────
-  if (adjustments.lightLeak > 0) {
-    const a = adjustments.lightLeak / 100;
-    ctx.globalCompositeOperation = 'screen';
-    const rg = ctx.createRadialGradient(0, 0, 0, W * 0.1, H * 0.1, W * 0.65);
-    rg.addColorStop(0, `rgba(255,80,10,${a * 0.85})`);
-    rg.addColorStop(0.3, `rgba(255,140,20,${a * 0.5})`);
-    rg.addColorStop(0.6, `rgba(255,180,60,${a * 0.2})`);
-    rg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = rg;
-    ctx.fillRect(0, 0, W, H);
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  // ── Step 23: Film Burn (bottom-right) ─────────────────────────────────────
-  if (adjustments.filmBurn > 0) {
-    const a = adjustments.filmBurn / 100;
-    ctx.globalCompositeOperation = 'screen';
-    const rg = ctx.createRadialGradient(W, H, 0, W * 0.85, H * 0.85, W * 0.65);
-    rg.addColorStop(0, `rgba(255,210,60,${a * 0.85})`);
-    rg.addColorStop(0.3, `rgba(255,120,10,${a * 0.5})`);
-    rg.addColorStop(0.6, `rgba(200,60,0,${a * 0.2})`);
-    rg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = rg;
-    ctx.fillRect(0, 0, W, H);
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  // ── Step 24: Dust ─────────────────────────────────────────────────────────
-  if (adjustments.dust > 0) {
-    const a = adjustments.dust / 100;
-    const [dc] = tmpCanvas(300, 300);
-    const dx = dc.getContext('2d')!;
-    dx.strokeStyle = `rgba(255,255,255,${a * 0.7})`; dx.lineWidth = 0.8;
-    dx.fillStyle = `rgba(255,255,255,${a * 0.6})`;
-    // Draw random dust particles
-    const rng = (s = 1) => Math.sin(s * 9301 + 49297) * 0.5 + 0.5;
-    for (let k = 0; k < 20; k++) {
-      const x = rng(k * 3) * 300, y = rng(k * 7) * 300;
-      const r = 0.4 + rng(k * 13) * 1.8;
-      if (k % 3 === 0) {
-        dx.beginPath(); dx.moveTo(x, y); dx.lineTo(x + r * 4, y + r * 2); dx.stroke();
-      } else {
-        dx.beginPath(); dx.arc(x, y, r, 0, Math.PI * 2); dx.fill();
+  // ── Step 15: Chromatic Aberration ─────────────────────────────────────────
+  if (adj.chromaticAberration > 0) {
+    const d  = ctx.getImageData(0, 0, W, H);
+    const px = d.data;
+    const orig = new Uint8ClampedArray(px);
+    const ox = Math.round((adj.chromaticAberration / 100) * W * 0.009);
+    const oy = Math.round((adj.chromaticAberration / 100) * H * 0.004);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const ri = (y * W + x) << 2;
+        const rxS = Math.min(W - 1, Math.max(0, x - ox));
+        const ryS = Math.min(H - 1, Math.max(0, y - oy));
+        const bxS = Math.min(W - 1, Math.max(0, x + ox));
+        const byS = Math.min(H - 1, Math.max(0, y + oy));
+        px[ri]     = orig[(ryS * W + rxS) << 2];
+        px[ri + 2] = orig[((byS * W + bxS) << 2) + 2];
       }
     }
-    ctx.globalCompositeOperation = 'screen';
-    ctx.globalAlpha = a * 0.9;
-    const pattern = ctx.createPattern(dc, 'repeat')!;
-    ctx.fillStyle = pattern;
-    ctx.fillRect(0, 0, W, H);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.putImageData(d, 0, 0);
   }
 
-  // ── Step 25: Scan Lines ────────────────────────────────────────────────────
-  if (adjustments.scanLines > 0) {
-    const a = (adjustments.scanLines / 100) * 0.55;
-    ctx.fillStyle = `rgba(0,0,0,${a})`;
-    for (let y = 0; y < H; y += 4) ctx.fillRect(0, y + 2, W, 2);
+  // ── Step 16: Dispersion ───────────────────────────────────────────────────
+  if (adj.dispersion > 0) {
+    const d  = ctx.getImageData(0, 0, W, H);
+    const px = d.data;
+    const orig = new Uint8ClampedArray(px);
+    const amt = Math.round((adj.dispersion / 100) * W * 0.038);
+    const ofy = Math.round(amt * 0.3);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const ri = (y * W + x) << 2;
+        const rxS = Math.min(W - 1, Math.max(0, x - amt));
+        const ryS = Math.min(H - 1, Math.max(0, y + ofy));
+        const bxS = Math.min(W - 1, Math.max(0, x + amt));
+        const byS = Math.min(H - 1, Math.max(0, y - ofy));
+        px[ri]     = orig[(ryS * W + rxS) << 2];
+        px[ri + 2] = orig[((byS * W + bxS) << 2) + 2];
+      }
+    }
+    ctx.putImageData(d, 0, 0);
   }
 
-  // ── Step 26: Pixelate ─────────────────────────────────────────────────────
-  if (adjustments.pixelate > 0) {
-    const blockSize = Math.max(3, Math.round((adjustments.pixelate / 100) * 60));
-    const pw = Math.max(1, Math.ceil(W / blockSize));
-    const ph = Math.max(1, Math.ceil(H / blockSize));
-    const [tc] = tmpCanvas(pw, ph);
-    const tx = tc.getContext('2d')!;
-    tx.imageSmoothingEnabled = false;
-    tx.drawImage(canvas, 0, 0, pw, ph);
+  // ── Step 17: Posterize ────────────────────────────────────────────────────
+  if (adj.posterize > 0) {
+    const d  = ctx.getImageData(0, 0, W, H);
+    const px = d.data;
+    const levels = Math.max(2, Math.round(8 - (adj.posterize / 100) * 6));
+    const step = 255 / (levels - 1);
+    const invStep = 1 / step;
+    for (let i = 0, ri = 0; i < N; i++, ri += 4) {
+      px[ri]     = Math.round((px[ri]     * invStep + 0.5) | 0) * step;
+      px[ri + 1] = Math.round((px[ri + 1] * invStep + 0.5) | 0) * step;
+      px[ri + 2] = Math.round((px[ri + 2] * invStep + 0.5) | 0) * step;
+    }
+    ctx.putImageData(d, 0, 0);
+  }
+
+  // ── Step 18: Pixelate ─────────────────────────────────────────────────────
+  if (adj.pixelate > 0) {
+    const blk = Math.max(2, Math.round((adj.pixelate / 100) * W * 0.055));
+    const [snap, sx] = tmpCanvas(W, H);
+    sx.drawImage(canvas, 0, 0);
+    const dw = Math.max(1, Math.ceil(W / blk)), dh = Math.max(1, Math.ceil(H / blk));
+    const [sm, smx] = tmpCanvas(dw, dh);
+    smx.drawImage(snap, 0, 0, dw, dh);
     ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, W, H);
-    ctx.drawImage(tc, 0, 0, W, H);
+    ctx.drawImage(sm, 0, 0, W, H);
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+  }
+
+  // ── Step 19: Scan Lines ───────────────────────────────────────────────────
+  if (adj.scanLines > 0) {
+    const str = (adj.scanLines / 100) * 0.48;
+    ctx.fillStyle = `rgba(0,0,0,${str})`;
+    for (let y = 0; y < H; y += 2) ctx.fillRect(0, y, W, 1);
+  }
+
+  // ── Step 20: Blur ─────────────────────────────────────────────────────────
+  if (adj.blur > 0) {
+    const d = ctx.getImageData(0, 0, W, H);
+    const px = d.data;
+    const rC = getBuffer(N), gC = getBuffer(N), bC = getBuffer(N);
+    for (let i = 0; i < N; i++) {
+      rC[i] = px[i<<2]; gC[i] = px[(i<<2)+1]; bC[i] = px[(i<<2)+2];
+    }
+    const br = Math.max(1, Math.round((adj.blur / 100) * W * 0.032));
+    const bR = blur(rC, W, H, br); await yld();
+    const bG = blur(gC, W, H, br);
+    const bB = blur(bC, W, H, br);
+    for (let i = 0, ri = 0; i < N; i++, ri += 4) {
+      px[ri]     = Math.min(255, Math.max(0, Math.round(bR[i])));
+      px[ri + 1] = Math.min(255, Math.max(0, Math.round(bG[i])));
+      px[ri + 2] = Math.min(255, Math.max(0, Math.round(bB[i])));
+    }
+    freeBuffer(rC); freeBuffer(gC); freeBuffer(bC);
+    freeBuffer(bR); freeBuffer(bG); freeBuffer(bB);
+    ctx.putImageData(d, 0, 0);
   }
 }

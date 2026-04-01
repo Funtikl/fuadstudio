@@ -130,14 +130,14 @@ export default function App() {
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             className="absolute inset-0 z-50"
           >
-            <PhotoEditor
-              imageSrc={editingPhoto.src}
-              initialFilterId={editingPhoto.filterId}
-              initialFilterIntensity={editingPhoto.filterIntensity ?? 100}
-              initialAdjustments={editingPhoto.adjustments}
-              onClose={handleCloseEditor}
-              onSave={handleSaveEdit}
-            />
+              <PhotoEditor
+                imageSrc={editingPhoto.src}
+                initialFilterId={editingPhoto.filterId}
+                initialFilterIntensity={editingPhoto.filterIntensity ?? 100}
+                initialAdjustments={editingPhoto.adjustments}
+                onClose={handleCloseEditor}
+                onSave={handleSaveEdit}
+              />
           </motion.div>
         )}
       </AnimatePresence>

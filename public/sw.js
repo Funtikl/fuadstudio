@@ -1,58 +1,28 @@
-const CACHE_NAME = 'lumina-cache-v1';
+// v6 — Oklab + Zone System + Physical Halation + Laplacian Pyramid + Subtractive Color
+const CACHE_NAME = 'fuads-studio-v6';
 
-self.addEventListener('install', event => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
+    // Delete every old cache unconditionally
+    caches.keys().then(keys =>
+      Promise.all(keys.map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', event => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Don't cache HTML files - always fetch fresh
-  if (url.pathname.endsWith('.html') || url.pathname === '/') {
-    event.respondWith(
-      fetch(request).catch(() => {
-        return caches.match(request);
-      })
-    );
-    return;
-  }
+  // Never cache — always go to network
+  // Vite already content-hashes all JS/CSS assets, so no caching needed
+  if (request.method !== 'GET') return;
 
-  // Cache-first strategy for assets (JS, CSS, images)
   event.respondWith(
-    caches.match(request).then(response => {
-      if (response) {
-        return response;
-      }
-      return fetch(request).then(response => {
-        // Don't cache error responses
-        if (!response || response.status !== 200 || response.type !== 'basic') {
-          return response;
-        }
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(request, responseToCache);
-        });
-        return response;
-      });
-    }).catch(() => {
-      // Return a fallback if offline
-      return caches.match(request);
-    })
+    fetch(request).catch(() => caches.match(request))
   );
 });

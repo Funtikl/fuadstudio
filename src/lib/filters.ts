@@ -31,6 +31,10 @@ export type Filter = {
 
 export const FILTERS: Filter[] = [
 
+  // ─── STANDARD (no-op — must always be first) ────────────────────────────────
+  { id: 'standard', name: 'Original', category: 'Film',
+    css: 'none' },
+
   // ─── FILM ────────────────────────────────────────────────────────────────────
 
   // Kodak Portra 160 — finest grain, legendary skin tones, lifted shadows
