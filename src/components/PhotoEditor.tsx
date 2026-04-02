@@ -454,7 +454,7 @@ export default function PhotoEditor({
 
       {/* ─── Bottom / Side panel ─────────────────────────────────────────────── */}
       <div
-        className={`flex-shrink-0 flex flex-col z-30 lg:w-[350px] xl:w-[400px] border-t lg:border-t-0 lg:border-l border-[rgba(200,191,176,0.055)] h-[55vh] lg:h-full lg:max-h-none`}
+        className={`flex-shrink-0 flex flex-col z-30 lg:w-[350px] xl:w-[400px] border-t lg:border-t-0 lg:border-l border-[rgba(200,191,176,0.055)] ${activeTab === 'adjust' ? '' : 'max-h-[52vh] lg:max-h-none lg:h-full'}`}
         style={{
           background: 'rgba(7,5,3,0.98)',
           boxShadow: '0 0 48px rgba(0,0,0,0.55)',
