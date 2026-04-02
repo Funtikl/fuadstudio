@@ -237,8 +237,8 @@ export default function PhotoEditor({
     setIsExporting(true);
     try {
       const exportCanvas = document.createElement('canvas');
-      // Render at full native resolution — no maxDimension cap
-      await renderToCanvas(imageSrc, activeFilter, filterIntensity, adjustments, exportCanvas);
+      // Render at high resolution, capped to 3840px (4K) to avoid mobile canvas limits crashing
+      await renderToCanvas(imageSrc, activeFilter, filterIntensity, adjustments, exportCanvas, 3840);
       // toBlob is async — avoids main-thread freeze that toDataURL causes on
       // large canvases, and is more memory-efficient (no base64 overhead)
       await new Promise<void>((res, rej) => {

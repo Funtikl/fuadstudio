@@ -957,13 +957,13 @@ export async function renderToCanvas(
     const px = d.data;
     const doGrain = adj.grain > 0;
     const grainSwing = doGrain ? (adj.grain / 100) * 0.044 : 0;
+    const grainStep = Math.max(1, Math.round(W / 900));
     const fadeK  = (adj.fade / 100) * 0.20;
     const doFade = fadeK > 0;
     const vigStr = adj.vignette / 100;
     const doVig  = vigStr > 0;
     const cx = W / 2, cy = H / 2;
     const invCx = 1 / cx, invCy = 1 / cy;
-    if (doGrain) _ni = (Math.random() * NTBL) | 0;
 
     for (let y = 0; y < H; y++) {
       const dy  = (y - cy) * invCy;
@@ -975,7 +975,16 @@ export async function renderToCanvas(
         // Zone-aware grain (luminance-only, perceptual)
         if (doGrain) {
           rgb8ToOklab(px[ri], px[ri + 1], px[ri + 2]);
-          const grainL = clamp01(_oL + fgauss() * zoneGrainAmp(_oL) * grainSwing);
+          let noiseVal = 0;
+          if (grainStep === 1) {
+            noiseVal = fgauss();
+          } else {
+            const sx = (x / grainStep) | 0;
+            const sy = (y / grainStep) | 0;
+            const hash = (sy * 73856093 ^ sx * 19349663);
+            noiseVal = NOISE[Math.abs(hash) & (NTBL - 1)];
+          }
+          const grainL = clamp01(_oL + noiseVal * zoneGrainAmp(_oL) * grainSwing);
           oklabToRgb8(grainL, _oa, _ob);
           r = TO_LINEAR[_r8]; g = TO_LINEAR[_g8]; b = TO_LINEAR[_b8];
         }
@@ -1034,10 +1043,11 @@ export async function renderToCanvas(
   if (adj.dust > 0) {
     const d  = ctx.getImageData(0, 0, W, H);
     const px = d.data;
-    const count = ((adj.dust / 100) * N * 0.00028) | 0;
+    const dustScale = Math.max(1, W / 900);
+    const count = ((adj.dust / 100) * (N / (dustScale * dustScale)) * 0.00028) | 0;
     for (let i = 0; i < count; i++) {
       const x = (Math.random() * W) | 0, y = (Math.random() * H) | 0;
-      const sz = Math.random() < 0.72 ? 1 : 2;
+      const sz = Math.ceil((Math.random() < 0.72 ? 1 : 2) * dustScale);
       const o = 0.35 + Math.random() * 0.55;
       const io = 1 - o;
       for (let dy = 0; dy < sz; dy++) {
@@ -1126,7 +1136,11 @@ export async function renderToCanvas(
   if (adj.scanLines > 0) {
     const str = (adj.scanLines / 100) * 0.48;
     ctx.fillStyle = `rgba(0,0,0,${str})`;
-    for (let y = 0; y < H; y += 2) ctx.fillRect(0, y, W, 1);
+    const gap = Math.max(2, H / 400); // 400 scanlines total
+    const th = Math.max(1, gap * 0.45);
+    for (let y = 0; y < H; y += gap) {
+      ctx.fillRect(0, Math.floor(y), W, Math.ceil(th));
+    }
   }
 
   // ── Step 20: Blur ─────────────────────────────────────────────────────────
