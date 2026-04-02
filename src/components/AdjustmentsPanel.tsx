@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
+import { useSlider } from "../lib/useSlider";
 import { Adjustments, DEFAULT_ADJUSTMENTS } from "../types";
 import {
   Sun, Contrast, Droplet, Thermometer, Palette, Image as ImageIcon,
@@ -94,41 +95,25 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
 
   const committedVal = adjustments[activeKey] ?? 0;
 
-  // Local visual state — decouples thumb position from React prop cycle
-  const [localVal, setLocalVal] = useState(committedVal);
-  const dragging = useRef(false);
-  const rafRef   = useRef(0);
+  // Refs so slider handlers stay stable across adjustments/activeKey changes
+  const adjRef     = useRef(adjustments);
+  const activeKeyR = useRef(activeKey);
+  const onChangeR  = useRef(onChange);
+  adjRef.current     = adjustments;
+  activeKeyR.current = activeKey;
+  onChangeR.current  = onChange;
 
-  // Sync from parent when: (a) not dragging, (b) tool changes, (c) undo/reset
-  useEffect(() => {
-    if (!dragging.current) setLocalVal(committedVal);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [committedVal, activeKey]);
+  const onChangeSt = useCallback((v: number) =>
+    onChangeR.current({ ...adjRef.current, [activeKeyR.current]: v }, false), []);
+  const onCommitSt = useCallback((v: number) =>
+    onChangeR.current({ ...adjRef.current, [activeKeyR.current]: v }, true),  []);
 
   const range = activeTool.max - activeTool.min;
-  const pct   = ((localVal - activeTool.min) / range) * 100;
+  const { local: localVal, pct, handleChange, handleCommit } = useSlider(
+    committedVal, activeTool.min, activeTool.max, onChangeSt, onCommitSt,
+  );
 
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = parseInt(e.target.value);
-    dragging.current = true;
-    setLocalVal(v);                            // Instant visual
-    cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(() =>
-      onChange({ ...adjustments, [activeKey]: v }, false)
-    );
-  }, [onChange, adjustments, activeKey]);
-
-  const handleCommit = useCallback((e: React.SyntheticEvent<HTMLInputElement>) => {
-    dragging.current = false;
-    cancelAnimationFrame(rafRef.current);
-    const v = parseInt((e.target as HTMLInputElement).value);
-    if (!isNaN(v)) {
-      setLocalVal(v);
-      onChange({ ...adjustments, [activeKey]: v }, true);
-    }
-  }, [onChange, adjustments, activeKey]);
-
-  const handleReset = useCallback(() => onChange(DEFAULT_ADJUSTMENTS, true), [onChange]);
+  const handleReset = useCallback(() => onChangeR.current(DEFAULT_ADJUSTMENTS, true), []);
 
   const changedCount = useMemo(() =>
     TOOLS.filter(t =>

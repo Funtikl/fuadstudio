@@ -108,31 +108,49 @@ export default function PhotoEditor({
     if (canRedo) { setCurrentIndex(i => i + 1); setDraftState(null); }
   }, [canRedo]);
 
+  // Stable refs so these never cause child re-renders from identity changes
+  const currentStateRef = useRef(currentState);
+  const historyRef      = useRef(history);
+  const currentIndexRef = useRef(currentIndex);
+  const commitStateRef  = useRef(commitState);
+  currentStateRef.current  = currentState;
+  historyRef.current       = history;
+  currentIndexRef.current  = currentIndex;
+  commitStateRef.current   = commitState;
+
   const handleAdjustmentChange = useCallback((newAdj: Adjustments, isFinal = false) => {
+    const cs   = currentStateRef.current;
+    const hist = historyRef.current;
+    const idx  = currentIndexRef.current;
     if (isFinal) {
-      const ns = { filterId: currentState.filterId, filterIntensity: currentState.filterIntensity, adjustments: newAdj };
-      const cs = history[currentIndex];
-      if (JSON.stringify(cs.adjustments) === JSON.stringify(newAdj) && cs.filterId === ns.filterId && cs.filterIntensity === ns.filterIntensity) {
+      const ns = { filterId: cs.filterId, filterIntensity: cs.filterIntensity, adjustments: newAdj };
+      const prev = hist[idx];
+      if (JSON.stringify(prev.adjustments) === JSON.stringify(newAdj) &&
+          prev.filterId === ns.filterId && prev.filterIntensity === ns.filterIntensity) {
         setDraftState(null); return;
       }
-      commitState(ns);
+      commitStateRef.current(ns);
     } else {
-      setDraftState({ filterId: currentState.filterId, filterIntensity: currentState.filterIntensity, adjustments: newAdj });
+      setDraftState({ filterId: cs.filterId, filterIntensity: cs.filterIntensity, adjustments: newAdj });
     }
-  }, [currentState, history, currentIndex, commitState]);
+  }, []);
 
   const handleIntensityChange = useCallback((v: number, isFinal = false) => {
+    const cs   = currentStateRef.current;
+    const hist = historyRef.current;
+    const idx  = currentIndexRef.current;
     if (isFinal) {
-      const ns = { filterId: currentState.filterId, filterIntensity: v, adjustments: currentState.adjustments };
-      const cs = history[currentIndex];
-      if (cs.filterIntensity === v && cs.filterId === ns.filterId && JSON.stringify(cs.adjustments) === JSON.stringify(ns.adjustments)) {
+      const ns = { filterId: cs.filterId, filterIntensity: v, adjustments: cs.adjustments };
+      const prev = hist[idx];
+      if (prev.filterIntensity === v && prev.filterId === ns.filterId &&
+          JSON.stringify(prev.adjustments) === JSON.stringify(ns.adjustments)) {
         setDraftState(null); return;
       }
-      commitState(ns);
+      commitStateRef.current(ns);
     } else {
-      setDraftState({ filterId: currentState.filterId, filterIntensity: v, adjustments: currentState.adjustments });
+      setDraftState({ filterId: cs.filterId, filterIntensity: v, adjustments: cs.adjustments });
     }
-  }, [currentState, history, currentIndex, commitState]);
+  }, []);
 
   const handleFilterSelect = useCallback((filterId: string) => {
     if (filterId === currentState.filterId) return;

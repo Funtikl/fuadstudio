@@ -143,15 +143,15 @@ function linRgbToOklab(rl: number, gl: number, bl: number) {
   _ob = 0.0259040371 * lc + 0.7827717662 * mc - 0.8086757660 * sc;
 }
 
-function oklabToLinRgb(L: number, a: number, b: number): [number, number, number] {
+// Zero-alloc version — writes into module-level vars _rL, _gL, _bL
+let _rL = 0, _gL = 0, _bL = 0;
+function oklabToLinRgbInline(L: number, a: number, b: number) {
   const lc = L + 0.3963377774 * a + 0.2158037573 * b;
   const mc = L - 0.1055613458 * a - 0.0638541728 * b;
   const sc = L - 0.0894841775 * a - 1.2914855480 * b;
-  return [
-     4.0767416621 * lc*lc*lc - 3.3077115913 * mc*mc*mc + 0.2309699292 * sc*sc*sc,
-    -1.2684380046 * lc*lc*lc + 2.6097574011 * mc*mc*mc - 0.3413193965 * sc*sc*sc,
-    -0.0041960863 * lc*lc*lc - 0.7034186147 * mc*mc*mc + 1.7076147010 * sc*sc*sc,
-  ];
+  _rL =  4.0767416621 * lc*lc*lc - 3.3077115913 * mc*mc*mc + 0.2309699292 * sc*sc*sc;
+  _gL = -1.2684380046 * lc*lc*lc + 2.6097574011 * mc*mc*mc - 0.3413193965 * sc*sc*sc;
+  _bL = -0.0041960863 * lc*lc*lc - 0.7034186147 * mc*mc*mc + 1.7076147010 * sc*sc*sc;
 }
 
 // ─── Zone system masks ───────────────────────────────────────────────────────
@@ -326,10 +326,10 @@ export async function renderToCanvas(
       rgb8ToOklab(px[ri], px[ri + 1], px[ri + 2]);
       let L = _oL, a = _oa, b = _ob;
 
-      // Exposure (linear-light multiply, back to Oklab)
+      // Exposure (linear-light multiply — zero-alloc inline)
       if (doExp) {
-        const [rl, gl, bl] = oklabToLinRgb(L, a, b);
-        linRgbToOklab(clamp01(rl * expMul), clamp01(gl * expMul), clamp01(bl * expMul));
+        oklabToLinRgbInline(L, a, b);
+        linRgbToOklab(clamp01(_rL * expMul), clamp01(_gL * expMul), clamp01(_bL * expMul));
         L = _oL; a = _oa; b = _ob;
       }
 
