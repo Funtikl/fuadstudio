@@ -1,10 +1,14 @@
 export interface Adjustments {
   // Tone
   exposure: number;
+  gamma: number;
   brightness: number;
   contrast: number;
   highlights: number;
   shadows: number;
+  whites: number;
+  blacks: number;
+  midtones: number;
   // Detail
   sharpness: number;
   detail: number;
@@ -56,10 +60,14 @@ export interface Photo {
 
 export const DEFAULT_ADJUSTMENTS: Adjustments = {
   exposure: 0,
+  gamma: 0,
   brightness: 0,
   contrast: 0,
   highlights: 0,
   shadows: 0,
+  whites: 0,
+  blacks: 0,
+  midtones: 0,
   sharpness: 0,
   detail: 0,
   clarity: 0,

@@ -1,12 +1,13 @@
 import React, { useState, useCallback, useMemo, useRef } from "react";
 import { useSlider } from "../lib/useSlider";
 import { Adjustments, DEFAULT_ADJUSTMENTS } from "../types";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Sun, Contrast, Droplet, Thermometer, Palette, Image as ImageIcon,
   CloudFog, Focus, Sparkles, CircleDashed, ArrowUpCircle, ArrowDownCircle,
   Zap, Pipette, PaintBucket, FlipHorizontal, RotateCcw, Diamond,
   ScanSearch, Eclipse, Wind, Flower, Layers, Aperture, Disc, Flame,
-  LayoutGrid, Moon, Sunrise, Hash, ScanLine, Star, Box, Heart,
+  LayoutGrid, Moon, Sunrise, Hash, ScanLine, Star, Box, Heart, ChevronDown
 } from "lucide-react";
 
 interface Props {
@@ -15,7 +16,7 @@ interface Props {
 }
 
 interface ToolDef {
-  key: string;
+  key: keyof Adjustments;
   label: string;
   icon: React.ElementType;
   min: number;
@@ -23,14 +24,17 @@ interface ToolDef {
   group: string;
 }
 
-// Flat ordered list of all tools — no accordion, just scroll
 const TOOLS: ToolDef[] = [
-  // Ton
-  { key: "exposure",   label: "Ekspozisiya", icon: Sun,             min: -100, max: 100, group: "Ton" },
-  { key: "brightness", label: "Parlaqlıq",   icon: CircleDashed,    min: -100, max: 100, group: "Ton" },
-  { key: "contrast",   label: "Kontrast",     icon: Contrast,        min: -100, max: 100, group: "Ton" },
-  { key: "highlights", label: "Açıq-rəng",    icon: ArrowUpCircle,   min: -100, max: 100, group: "Ton" },
-  { key: "shadows",    label: "Kölgələr",     icon: ArrowDownCircle, min: -100, max: 100, group: "Ton" },
+  // İşıq-Kölgə
+  { key: "exposure",   label: "Ekspozisiya", icon: Sun,             min: -100, max: 100, group: "İşıq-Kölgə" },
+  { key: "gamma",      label: "Qamma",       icon: CircleDashed,    min: -100, max: 100, group: "İşıq-Kölgə" },
+  { key: "brightness", label: "Parlaqlıq",   icon: Sun,             min: -100, max: 100, group: "İşıq-Kölgə" },
+  { key: "contrast",   label: "Kontrast",    icon: Contrast,        min: -100, max: 100, group: "İşıq-Kölgə" },
+  { key: "whites",     label: "Ağlar",       icon: Sun,             min: -100, max: 100, group: "İşıq-Kölgə" },
+  { key: "highlights", label: "Açıq-rəng",   icon: ArrowUpCircle,   min: -100, max: 100, group: "İşıq-Kölgə" },
+  { key: "midtones",   label: "Orta tonlar", icon: CircleDashed,    min: -100, max: 100, group: "İşıq-Kölgə" },
+  { key: "shadows",    label: "Kölgələr",    icon: ArrowDownCircle, min: -100, max: 100, group: "İşıq-Kölgə" },
+  { key: "blacks",     label: "Qaralar",     icon: Moon,            min: -100, max: 100, group: "İşıq-Kölgə" },
   // Detal
   { key: "sharpness",        label: "Kəskinlik", icon: Diamond,    min: 0, max: 100, group: "Detal" },
   { key: "clarity",          label: "Aydınlıq",  icon: Eclipse,    min: -100, max: 100, group: "Detal" },
@@ -40,12 +44,12 @@ const TOOLS: ToolDef[] = [
   { key: "highlightRolloff", label: "Rollof",    icon: Sun,        min: 0, max: 100, group: "Detal" },
   // Rəng
   { key: "saturation",         label: "Doyğunluq", icon: Droplet,     min: -100, max: 100, group: "Rəng" },
-  { key: "vibrance",           label: "Vibrans",    icon: Zap,         min: -100, max: 100, group: "Rəng" },
-  { key: "warmth",             label: "İstilik",    icon: Thermometer, min: -100, max: 100, group: "Rəng" },
-  { key: "tint",               label: "Çalar",      icon: Pipette,     min: -100, max: 100, group: "Rəng" },
-  { key: "hue",                label: "Rəng-tonu",  icon: Palette,     min: -180, max: 180, group: "Rəng" },
-  { key: "splitToneShadow",    label: "Kölgə-ton",  icon: Moon,        min: -180, max: 180, group: "Rəng" },
-  { key: "splitToneHighlight", label: "Parlaq-ton", icon: Sunrise,     min: -180, max: 180, group: "Rəng" },
+  { key: "vibrance",           label: "Vibrans",   icon: Zap,         min: -100, max: 100, group: "Rəng" },
+  { key: "warmth",             label: "İstilik",   icon: Thermometer, min: -100, max: 100, group: "Rəng" },
+  { key: "tint",               label: "Çalar",     icon: Pipette,     min: -100, max: 100, group: "Rəng" },
+  { key: "hue",                label: "Rəng-tonu", icon: Palette,     min: -180, max: 180, group: "Rəng" },
+  { key: "splitToneShadow",    label: "Kölgə-ton", icon: Moon,        min: -180, max: 180, group: "Rəng" },
+  { key: "splitToneHighlight", label: "Parlaq-ton", icon: Sunrise,    min: -180, max: 180, group: "Rəng" },
   // FX
   { key: "fade",         label: "Solğunluq", icon: Layers, min: 0, max: 100, group: "FX" },
   { key: "vignette",     label: "Vinyet",    icon: Focus,  min: 0, max: 100, group: "FX" },
@@ -63,7 +67,7 @@ const TOOLS: ToolDef[] = [
   { key: "sepia",     label: "Sepiya",    icon: ImageIcon,      min: 0, max: 100, group: "Klassik" },
   { key: "grayscale", label: "Ağ-qara",   icon: PaintBucket,    min: 0, max: 100, group: "Klassik" },
   { key: "invert",    label: "İnvert",    icon: FlipHorizontal, min: 0, max: 100, group: "Klassik" },
-  { key: "blur",      label: "Bulanıq",    icon: CloudFog,       min: 0, max: 100, group: "Klassik" },
+  { key: "blur",      label: "Bulanıq",   icon: CloudFog,       min: 0, max: 100, group: "Klassik" },
   // Kreativ
   { key: "dispersion", label: "Dağılma",   icon: Star,      min: 0, max: 100, group: "Kreativ" },
   { key: "posterize",  label: "Poster",    icon: LayoutGrid,min: 0, max: 100, group: "Kreativ" },
@@ -71,11 +75,8 @@ const TOOLS: ToolDef[] = [
   { key: "scanLines",  label: "Skan-xətt", icon: ScanLine,  min: 0, max: 100, group: "Kreativ" },
 ];
 
-const FALLBACK = TOOLS[0];
-
-// Group colour accents (subtle)
 const GROUP_COLORS: Record<string, string> = {
-  Ton:     'rgba(200,191,176,0.14)',
+  "İşıq-Kölgə": 'rgba(200,191,176,0.14)',
   Detal:   'rgba(150,180,200,0.12)',
   Rəng:    'rgba(200,150,180,0.12)',
   FX:      'rgba(180,200,150,0.12)',
@@ -84,60 +85,103 @@ const GROUP_COLORS: Record<string, string> = {
   Kreativ: 'rgba(180,150,200,0.12)',
 };
 
-export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
-  const [activeKey, setActiveKey] = useState<keyof Adjustments>("exposure");
-  const scrollRef = useRef<HTMLDivElement>(null);
+const GROUPS = ["İşıq-Kölgə", "Detal", "Rəng", "FX", "Film", "Klassik", "Kreativ"];
 
-  const activeTool = useMemo(
-    () => TOOLS.find(t => t.key === activeKey) || FALLBACK,
-    [activeKey],
-  );
-
-  const committedVal = adjustments[activeKey] ?? 0;
-
-  // Refs so slider handlers stay stable across adjustments/activeKey changes
-  const adjRef     = useRef(adjustments);
-  const activeKeyR = useRef(activeKey);
-  const onChangeR  = useRef(onChange);
-  adjRef.current     = adjustments;
-  activeKeyR.current = activeKey;
-  onChangeR.current  = onChange;
-
-  const onChangeSt = useCallback((v: number) =>
-    onChangeR.current({ ...adjRef.current, [activeKeyR.current]: v }, false), []);
-  const onCommitSt = useCallback((v: number) =>
-    onChangeR.current({ ...adjRef.current, [activeKeyR.current]: v }, true),  []);
-
-  const range = activeTool.max - activeTool.min;
+function SliderRow({ tool, value, defVal, onChange, onCommit }: { tool: ToolDef, value: number, defVal: number, onChange: (k: keyof Adjustments, v: number)=>void, onCommit: (k: keyof Adjustments, v: number)=>void }) {
+  const onChangeL = useCallback((v: number) => onChange(tool.key, v), [onChange, tool.key]);
+  const onCommitL = useCallback((v: number) => onCommit(tool.key, v), [onCommit, tool.key]);
+  
+  const range = tool.max - tool.min;
   const { local: localVal, pct, handleChange, handleCommit } = useSlider(
-    committedVal, activeTool.min, activeTool.max, onChangeSt, onCommitSt,
+    value, tool.min, tool.max, onChangeL, onCommitL,
   );
+
+  return (
+    <div className="flex-shrink-0 px-5 py-2">
+      <div className="flex justify-between items-baseline mb-1">
+        <span className="text-[10px] uppercase tracking-[0.15em] text-[#c8bfb0]/80 font-medium">
+          {tool.label}
+        </span>
+        <span className={`text-[11px] font-mono tabular-nums font-medium transition-colors ${
+          localVal === 0 ? 'text-[#5a544c]' : 'text-[#c8bfb0]'
+        }`}>
+          {localVal > 0 ? `+${localVal}` : localVal}
+        </span>
+      </div>
+
+      <div className="relative w-full h-8 flex items-center">
+        <input
+          type="range" min={tool.min} max={tool.max} value={localVal}
+          onChange={handleChange}
+          onPointerUp={handleCommit}
+          onTouchEnd={handleCommit}
+          onKeyUp={e => {
+            if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) handleCommit(e as any);
+          }}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+          style={{ touchAction: "none" }}
+        />
+        {/* Track */}
+        <div className="w-full h-[3px] rounded-full relative" style={{ background: 'rgba(200,191,176,0.10)' }}>
+          {tool.min < 0 && (
+            <div
+              className="absolute left-1/2 -translate-x-1/2 w-px h-[10px] -top-[3.5px] rounded-full"
+              style={{ background: 'rgba(200,191,176,0.25)' }}
+            />
+          )}
+          <div
+            className="absolute h-full rounded-full pointer-events-none"
+            style={{
+              background: localVal === 0 ? 'transparent' : 'rgba(200,191,176,0.70)',
+              left:  tool.min < 0 ? '50%' : '0%',
+              width: tool.min < 0
+                ? `${Math.abs(localVal / Math.max(range, 1)) * 100}%`
+                : `${pct}%`,
+              transform: tool.min < 0 && localVal < 0 ? 'translateX(-100%)' : 'none',
+            }}
+          />
+        </div>
+        {/* Thumb */}
+        <div
+          className="absolute w-[18px] h-[18px] rounded-full pointer-events-none"
+          style={{
+            left: `${pct}%`,
+            transform: 'translateX(-50%)',
+            background: localVal === 0 ? '#8a847c' : '#e8e4df',
+            boxShadow: '0 2px 5px rgba(0,0,0,0.40)',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
+  const [openGroup, setOpenGroup] = useState<string>("İşıq-Kölgə");
+  const adjRef = useRef(adjustments);
+  const onChangeR = useRef(onChange);
+  adjRef.current = adjustments;
+  onChangeR.current = onChange;
+
+  const onChangeSt = useCallback((k: keyof Adjustments, v: number) =>
+    onChangeR.current({ ...adjRef.current, [k]: v }, false), []);
+  const onCommitSt = useCallback((k: keyof Adjustments, v: number) =>
+    onChangeR.current({ ...adjRef.current, [k]: v }, true),  []);
 
   const handleReset = useCallback(() => onChangeR.current(DEFAULT_ADJUSTMENTS, true), []);
 
   const changedCount = useMemo(() =>
     TOOLS.filter(t =>
-      adjustments[t.key as keyof Adjustments] !== DEFAULT_ADJUSTMENTS[t.key as keyof Adjustments]
+      adjustments[t.key] !== DEFAULT_ADJUSTMENTS[t.key]
     ).length,
   [adjustments]);
 
-  // Group dividers: collect unique groups in order
-  const groups = useMemo(() => {
-    const seen = new Set<string>();
-    const list: string[] = [];
-    for (const t of TOOLS) {
-      if (!seen.has(t.group)) { seen.add(t.group); list.push(t.group); }
-    }
-    return list;
-  }, []);
-
   return (
-    <div className="w-full flex flex-col select-none">
-
+    <div className="w-full h-full flex flex-col select-none overflow-hidden" style={{ minHeight: 0 }}>
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 flex justify-between items-center px-4 pt-2.5 pb-1">
+      <div className="flex-shrink-0 flex justify-between items-center px-4 pt-3 pb-2 border-b border-[#c8bfb0]/10">
         <div className="flex items-center gap-2">
-          <span className="text-[8px] uppercase tracking-[0.22em] text-[#3a3530] font-semibold">Nizamla</span>
+          <span className="text-[9px] uppercase tracking-[0.22em] text-[#3a3530] font-bold">Nizamla</span>
           {changedCount > 0 && (
             <span
               className="text-[7px] px-1.5 py-0.5 rounded-full font-mono text-[#5a544c] tabular-nums"
@@ -149,153 +193,79 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
         </div>
         <button
           onClick={handleReset}
-          className="flex items-center gap-1 text-[#2e2a26] active:text-[#c8bfb0] transition-colors"
+          className="flex items-center gap-1 text-[#5a544c] active:text-[#c8bfb0] transition-colors"
         >
-          <RotateCcw className="w-2.5 h-2.5" strokeWidth={2} />
+          <RotateCcw className="w-3 h-3" strokeWidth={2} />
           <span className="text-[8px] uppercase tracking-[0.12em] font-medium">Sıfırla</span>
         </button>
       </div>
 
-      {/* ── Active slider ───────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 px-4 pb-2">
-        <div className="flex justify-between items-baseline mb-2">
-          <span className="text-[11px] uppercase tracking-[0.18em] text-[#c8bfb0]/80 font-semibold">
-            {activeTool.label}
-          </span>
-          <span className={`text-[13px] font-mono tabular-nums font-medium transition-colors ${
-            localVal === 0 ? 'text-[#2e2a26]' : 'text-[#c8bfb0]'
-          }`}>
-            {localVal > 0 ? `+${localVal}` : localVal}
-          </span>
-        </div>
+      {/* ── Accordion List ─────────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
+        {GROUPS.map((group) => {
+          const groupTools = TOOLS.filter(t => t.group === group);
+          const isOpen = openGroup === group;
+          const bg = GROUP_COLORS[group];
 
-        <div className="relative w-full h-12 flex items-center">
-          <input
-            type="range" min={activeTool.min} max={activeTool.max} value={localVal}
-            onChange={handleChange}
-            onPointerUp={handleCommit}
-            onTouchEnd={handleCommit}
-            onKeyUp={e => {
-              if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) handleCommit(e as any);
-            }}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-            style={{ touchAction: "none" }}
-          />
-          {/* Track */}
-          <div className="w-full h-[3px] rounded-full relative" style={{ background: 'rgba(200,191,176,0.10)' }}>
-            {activeTool.min < 0 && (
-              <div
-                className="absolute left-1/2 -translate-x-1/2 w-px h-[14px] -top-[5.5px] rounded-full"
-                style={{ background: 'rgba(200,191,176,0.20)' }}
-              />
-            )}
-            <div
-              className="absolute h-full rounded-full"
-              style={{
-                background: localVal === 0 ? 'transparent' : 'rgba(200,191,176,0.70)',
-                left:  activeTool.min < 0 ? '50%' : '0%',
-                width: activeTool.min < 0
-                  ? `${Math.abs(localVal / range) * 100}%`
-                  : `${pct}%`,
-                transform: activeTool.min < 0 && localVal < 0 ? 'translateX(-100%)' : 'none',
-              }}
-            />
-          </div>
-          {/* Thumb */}
-          <div
-            className="absolute w-[24px] h-[24px] rounded-full pointer-events-none"
-            style={{
-              left: `${pct}%`,
-              transform: 'translateX(-50%)',
-              background: '#e8e4df',
-              boxShadow: '0 2px 10px rgba(0,0,0,0.40)',
-            }}
-          />
-        </div>
-      </div>
+          // Count active tools in this group
+          const activeInGroup = groupTools.filter(
+            t => adjustments[t.key] !== DEFAULT_ADJUSTMENTS[t.key]
+          ).length;
 
-      {/* ── Separator ──────────────────────────────────────────────────────── */}
-      <div className="flex-shrink-0 mx-4 mb-2" style={{ height: 1, background: 'rgba(200,191,176,0.07)' }} />
-
-      {/* ── Horizontally scrollable tool icons ─────────────────────────────── */}
-      <div
-        ref={scrollRef}
-        className="flex-shrink-0 overflow-x-auto no-scrollbar pb-3 pt-0.5"
-        style={{ WebkitOverflowScrolling: 'touch' }}
-      >
-        <div className="flex items-center gap-0 px-3" style={{ width: 'max-content' }}>
-          {groups.map((group, gi) => {
-            const groupTools = TOOLS.filter(t => t.group === group);
-            return (
-              <React.Fragment key={group}>
-                {/* Group divider (except before first group) */}
-                {gi > 0 && (
-                  <div
-                    className="flex-shrink-0 mx-1.5"
-                    style={{ width: 1, height: 36, background: 'rgba(200,191,176,0.09)' }}
-                  />
-                )}
-                {/* Group label */}
-                <div className="flex-shrink-0 flex flex-col items-center mr-1">
+          return (
+            <div key={group} className="border-b border-[#c8bfb0]/5">
+              <button
+                onClick={() => setOpenGroup(isOpen ? "" : group)}
+                className="w-full flex items-center justify-between px-5 py-4 transition-colors active:bg-[#c8bfb0]/5"
+              >
+                <div className="flex items-center gap-3">
                   <span
-                    className="text-[5.5px] uppercase tracking-[0.14em] font-semibold"
-                    style={{ color: 'rgba(200,191,176,0.22)', writingMode: 'vertical-rl', transform: 'rotate(180deg)', letterSpacing: '0.12em' }}
+                    className="text-[10px] uppercase tracking-[0.18em] font-medium"
+                    style={{ color: isOpen ? '#e8e4df' : (activeInGroup > 0 ? '#c8bfb0' : '#5a544c') }}
                   >
                     {group}
                   </span>
+                  {activeInGroup > 0 && (
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: bg }} />
+                  )}
                 </div>
-                {/* Tools */}
-                <div className="flex gap-1">
-                  {groupTools.map(tool => {
-                    const Icon     = tool.icon;
-                    const isActive = activeKey === tool.key;
-                    const toolVal  = adjustments[tool.key as keyof Adjustments];
-                    const defVal   = DEFAULT_ADJUSTMENTS[tool.key as keyof Adjustments];
-                    const isChanged = toolVal !== defVal;
+                <motion.div
+                  initial={false}
+                  animate={{ rotate: isOpen ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronDown className="w-4 h-4 text-[#5a544c]" strokeWidth={1.5} />
+                </motion.div>
+              </button>
 
-                    return (
-                      <button
-                        key={tool.key}
-                        onClick={() => setActiveKey(tool.key as keyof Adjustments)}
-                        className="relative flex-shrink-0 flex flex-col items-center justify-center w-[52px] h-[52px] rounded-[14px] transition-all duration-120 active:scale-95"
-                        style={{
-                          background: isActive
-                            ? '#e8e4df'
-                            : isChanged
-                              ? GROUP_COLORS[tool.group]
-                              : 'rgba(255,255,255,0.022)',
-                          border: isActive
-                            ? 'none'
-                            : `1px solid ${isChanged ? 'rgba(200,191,176,0.13)' : 'rgba(255,255,255,0.03)'}`,
-                        }}
-                      >
-                        <Icon
-                          className="w-[13px] h-[13px] mb-0.5"
-                          strokeWidth={1.6}
-                          style={{ color: isActive ? '#060504' : isChanged ? '#c0b8ae' : '#2e2a26' }}
-                        />
-                        <span
-                          className="text-[6px] uppercase tracking-[0.04em] font-bold text-center leading-tight"
-                          style={{ color: isActive ? '#060504' : isChanged ? '#b0a89e' : '#2e2a26' }}
-                        >
-                          {tool.label}
-                        </span>
-
-                        {/* Dot indicator for changed */}
-                        {isChanged && !isActive && (
-                          <div
-                            className="absolute top-[5px] right-[5px] w-[5px] h-[5px] rounded-full"
-                            style={{ background: 'rgba(200,191,176,0.55)' }}
+              <AnimatePresence initial={false}>
+                {isOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <div className="pb-3 bg-[#0a0806]/40">
+                      {groupTools.map(tool => (
+                        <div key={tool.key as string}>
+                          <SliderRow
+                            tool={tool}
+                            value={adjustments[tool.key]}
+                            defVal={DEFAULT_ADJUSTMENTS[tool.key]}
+                            onChange={onChangeSt}
+                            onCommit={onCommitSt}
                           />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </React.Fragment>
-            );
-          })}
-        </div>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

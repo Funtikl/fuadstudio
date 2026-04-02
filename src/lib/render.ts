@@ -158,6 +158,9 @@ function oklabToLinRgbInline(L: number, a: number, b: number) {
 
 const shadowW    = (L: number) => clamp01(1 - L / 0.4);
 const highlightW = (L: number) => clamp01((L - 0.45) / 0.4);
+const blackW     = (L: number) => clamp01(1 - L / 0.2);
+const whiteW     = (L: number) => clamp01((L - 0.8) / 0.2);
+const midW       = (L: number) => clamp01(1 - Math.abs(L - 0.5) / 0.4);
 
 function zoneGrainAmp(L: number): number {
   if (L < 0.20) return 1.55;
@@ -206,10 +209,14 @@ function parseCss(css: string): _CssParsed {
 
 export interface EnhanceResult {
   exposure: number;
+  gamma: number;
   brightness: number;
   contrast: number;
   highlights: number;
   shadows: number;
+  whites: number;
+  blacks: number;
+  midtones: number;
   clarity: number;
   sharpness: number;
   vibrance: number;
@@ -299,8 +306,8 @@ export async function analyzeImage(imageSrc: string): Promise<EnhanceResult> {
 
   // ── Compute optimal adjustments ───────────────────────────────────────────
   const summary: string[] = [];
-  let exposure = 0, brightness = 0, contrast = 0;
-  let highlights = 0, shadows = 0, clarity = 0, sharpness = 0;
+  let exposure = 0, gamma = 0, brightness = 0, contrast = 0;
+  let highlights = 0, shadows = 0, whites = 0, blacks = 0, midtones = 0, clarity = 0, sharpness = 0;
   let vibrance = 0, warmth = 0, tint = 0, highlightRolloff = 0;
 
   // 1. Exposure: target median L ≈ 0.44 (slightly below mid for aesthetics)
@@ -325,6 +332,9 @@ export async function analyzeImage(imageSrc: string): Promise<EnhanceResult> {
   if (darkFrac > 0.38) {
     shadows = Math.round(Math.min(55, darkFrac * 100));
     summary.push(`Kölgələr +${shadows} qaldırıldı`);
+    if (darkFrac > 0.50) {
+      blacks = Math.round(Math.min(30, (darkFrac - 0.5) * 60));
+    }
   }
 
   // 4. Highlights: protect if blown
@@ -332,6 +342,9 @@ export async function analyzeImage(imageSrc: string): Promise<EnhanceResult> {
     highlights = Math.round(Math.max(-55, -brightFrac * 120));
     highlightRolloff = Math.round(Math.min(50, brightFrac * 80));
     summary.push(`Parlaq sahələr ${highlights} qorundu`);
+    if (brightFrac > 0.20) {
+      whites = Math.round(Math.max(-30, -(brightFrac - 0.2) * 60));
+    }
   }
 
   // 5. Clarity: always benefits portraits + landscapes
@@ -379,7 +392,7 @@ export async function analyzeImage(imageSrc: string): Promise<EnhanceResult> {
   if (summary.length === 0) summary.push('Artıq balanslıdır');
 
   return {
-    exposure, brightness, contrast, highlights, shadows,
+    exposure, gamma, brightness, contrast, highlights, shadows, whites, blacks, midtones,
     clarity, sharpness, vibrance, warmth, tint, highlightRolloff,
     summary,
   };
@@ -483,6 +496,8 @@ export async function renderToCanvas(
     // Pre-compute ALL constants outside the loop
     const expMul     = Math.pow(2, adj.exposure / 50);
     const doExp      = expMul !== 1;
+    const gammaK     = adj.gamma === 0 ? 1 : Math.pow(2, -adj.gamma / 100);
+    const doGamma    = gammaK !== 1;
     // Brightness: additive user offset + multiplicative filter brightness
     const brightAdd  = (adj.brightness / 100) * 0.18;
     const brightMul  = fcB;
@@ -492,7 +507,10 @@ export async function renderToCanvas(
     const doCont     = Math.abs(contK - 1) > 0.0005;
     const hiAmt      = adj.highlights / 200;
     const shAmt      = adj.shadows / 200;
-    const doHiSh     = hiAmt !== 0 || shAmt !== 0;
+    const whAmt      = adj.whites / 200;
+    const blAmt      = adj.blacks / 200;
+    const midAmt     = adj.midtones / 200;
+    const doHiSh     = hiAmt !== 0 || shAmt !== 0 || whAmt !== 0 || blAmt !== 0 || midAmt !== 0;
     // Saturation: filter × user
     const satMul     = fcS * (1 + adj.saturation / 100);
     const vibAmt     = adj.vibrance / 100;
@@ -563,18 +581,27 @@ export async function renderToCanvas(
       if (doBrightMul) L = clamp01(L * brightMul);
       L = clamp01(L + brightAdd);
 
+      // Gamma (curve pivot)
+      if (doGamma) L = Math.pow(L, gammaK);
+
       // Contrast (pivot 0.5) — soft shoulder prevents harsh clipping
       if (doCont) {
         const t = L - 0.5;
         L = clamp01(0.5 + t * contK * (1 - Math.abs(t) * 0.18 * Math.abs(contK - 1)));
       }
 
-      // Zone-weighted shadows / highlights
+      // Zone-weighted shadows / highlights / whites / blacks / midtones
       if (doHiSh) {
         const sw = shadowW(L);
         const hw = highlightW(L);
+        const bl = blackW(L);
+        const wh = whiteW(L);
+        const mt = midW(L);
+        if (blAmt !== 0) L = clamp01(L + blAmt * bl);
         if (shAmt !== 0) L = clamp01(L + shAmt * sw);
+        if (midAmt !== 0) L = clamp01(L + midAmt * mt);
         if (hiAmt !== 0) L = clamp01(L + hiAmt * hw);
+        if (whAmt !== 0) L = clamp01(L + whAmt * wh);
       }
 
       // Highlight rolloff (shoulder compression)
