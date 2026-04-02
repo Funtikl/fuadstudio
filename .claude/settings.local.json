@@ -12,7 +12,21 @@
       "Bash(/usr/local/bin/npx vite:*)",
       "Bash(/opt/homebrew/bin/npx vite:*)",
       "Bash(PATH=\"/Users/fuadrustamzade/.nvm/versions/node/v20.15.1/bin:$PATH\" npx vite build)",
-      "Bash(/Users/fuadrustamzade/.nvm/versions/node/v20.15.1/bin/node node_modules/.bin/tsc --noEmit)"
+      "Bash(/Users/fuadrustamzade/.nvm/versions/node/v20.15.1/bin/node node_modules/.bin/tsc --noEmit)",
+      "WebSearch",
+      "WebFetch(domain:www.lensrentals.com)",
+      "WebFetch(domain:leica-camera.com)",
+      "WebFetch(domain:oberwerth.com)",
+      "WebFetch(domain:www.artphotoacademy.com)",
+      "WebFetch(domain:www.overgaard.dk)",
+      "WebFetch(domain:www.streetsilhouettes.com)",
+      "WebFetch(domain:fstoppers.com)",
+      "WebFetch(domain:diglloyd.com)",
+      "WebFetch(domain:www.kenrockwell.com)",
+      "WebFetch(domain:www.botzilla.com)",
+      "WebFetch(domain:www.snapsbyfox.com)",
+      "WebFetch(domain:www.robinschimko.com)",
+      "WebFetch(domain:timonada.com)"
     ]
   }
 }

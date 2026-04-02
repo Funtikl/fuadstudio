@@ -6,7 +6,7 @@ import FilterCarousel from "./FilterCarousel";
 import AdjustmentsPanel from "./AdjustmentsPanel";
 import { Adjustments } from "../types";
 import { getAdjustmentCss, hueToRgb } from "../lib/utils";
-import { renderToCanvas } from "../lib/render";
+import { renderToCanvas, analyzeImage } from "../lib/render";
 
 interface PhotoEditorProps {
   imageSrc: string;
@@ -23,14 +23,18 @@ interface EditorState {
   adjustments: Adjustments;
 }
 
+const clampAdj = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
+
 export default function PhotoEditor({
   imageSrc, initialFilterId, initialFilterIntensity, initialAdjustments, onClose, onSave,
 }: PhotoEditorProps) {
   const canvasRef        = useRef<HTMLCanvasElement>(null);
   const [activeTab, setActiveTab] = useState<"presets" | "adjust">("presets");
-  const [isExporting, setIsExporting]   = useState(false);
-  const [isRendering, setIsRendering]   = useState(false);
-  const [isComparing, setIsComparing]   = useState(false);
+  const [isExporting, setIsExporting]         = useState(false);
+  const [isRendering, setIsRendering]         = useState(false);
+  const [isComparing, setIsComparing]         = useState(false);
+  const [isEnhancing, setIsEnhancing]         = useState(false);
+  const [enhanceSummary, setEnhanceSummary]   = useState<string[] | null>(null);
   const [renderedPreview, setRenderedPreview] = useState<string | null>(null);
   const renderVersionRef = useRef(0);
 
@@ -180,21 +184,38 @@ export default function PhotoEditor({
     });
   }, [currentState, commitState]);
 
-  const handleAutoEnhance = useCallback(() => {
-    commitState({
-      filterId: currentState.filterId, filterIntensity: currentState.filterIntensity,
-      adjustments: {
-        ...adjustments,
-        vibrance:   Math.min(100, adjustments.vibrance   + 25),
-        shadows:    Math.min(100, adjustments.shadows    + 18),
-        highlights: Math.max(-100, adjustments.highlights - 10),
-        clarity:    Math.min(100, adjustments.clarity    + 12),
-        sharpness:  Math.min(100, adjustments.sharpness  + 20),
-        vignette:   Math.max(adjustments.vignette, 12),
-        warmth:     Math.min(100, adjustments.warmth     + 5),
-      },
-    });
-  }, [currentState, adjustments, commitState]);
+  const handleAutoEnhance = useCallback(async () => {
+    if (isEnhancing) return;
+    setIsEnhancing(true);
+    try {
+      const result = await analyzeImage(imageSrc);
+      const cs = currentStateRef.current;
+      const adj = cs.adjustments;
+      commitStateRef.current({
+        filterId: cs.filterId,
+        filterIntensity: cs.filterIntensity,
+        adjustments: {
+          ...adj,
+          exposure:        clampAdj(adj.exposure        + result.exposure,        -100, 100),
+          brightness:      clampAdj(adj.brightness      + result.brightness,      -100, 100),
+          contrast:        clampAdj(adj.contrast        + result.contrast,        -100, 100),
+          highlights:      clampAdj(adj.highlights      + result.highlights,      -100, 100),
+          shadows:         clampAdj(adj.shadows         + result.shadows,         -100, 100),
+          clarity:         clampAdj(adj.clarity         + result.clarity,            0, 100),
+          sharpness:       clampAdj(adj.sharpness       + result.sharpness,          0, 100),
+          vibrance:        clampAdj(adj.vibrance        + result.vibrance,        -100, 100),
+          warmth:          clampAdj(adj.warmth          + result.warmth,          -100, 100),
+          tint:            clampAdj(adj.tint            + result.tint,            -100, 100),
+          highlightRolloff:clampAdj(adj.highlightRolloff+ result.highlightRolloff,    0, 100),
+        },
+      });
+      setEnhanceSummary(result.summary);
+      setTimeout(() => setEnhanceSummary(null), 3000);
+    } finally {
+      setIsEnhancing(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEnhancing, imageSrc]);
 
   const previewFilter = useMemo(() => {
     if (isComparing) return "none";
@@ -296,8 +317,11 @@ export default function PhotoEditor({
 
         {/* Right: enhance / export / save */}
         <div className="flex items-center gap-1.5">
-          <TopBtn onClick={handleAutoEnhance} title="Auto Enhance">
-            <Sparkles className="w-3.5 h-3.5" strokeWidth={1.5} />
+          <TopBtn onClick={handleAutoEnhance} disabled={isEnhancing} title="Enhance Quality">
+            {isEnhancing
+              ? <span className="w-3 h-3 rounded-full border border-[#c8bfb0]/40 border-t-[#c8bfb0] animate-spin" />
+              : <Sparkles className="w-3.5 h-3.5" strokeWidth={1.5} />
+            }
           </TopBtn>
           <TopBtn onClick={handleExport} disabled={isExporting} title="Export PNG">
             {isExporting
@@ -313,6 +337,36 @@ export default function PhotoEditor({
           </button>
         </div>
       </div>
+
+      {/* ─── Enhance result toast ────────────────────────────────────── */}
+      <AnimatePresence>
+        {enhanceSummary && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.22 }}
+            className="flex-shrink-0 mx-3 mb-1 px-3 py-2 rounded-xl z-30"
+            style={{ background: 'rgba(200,191,176,0.07)', border: '1px solid rgba(200,191,176,0.10)' }}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <Sparkles className="w-2.5 h-2.5 text-[#c8bfb0]" strokeWidth={1.5} />
+              <span className="text-[8px] uppercase tracking-[0.18em] text-[#c8bfb0] font-semibold">Enhanced</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {enhanceSummary.map((s, i) => (
+                <span
+                  key={i}
+                  className="text-[7px] text-[#5a544c] font-medium px-1.5 py-0.5 rounded-full"
+                  style={{ background: 'rgba(200,191,176,0.06)' }}
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ─── Image area ───────────────────────────────────────────────── */}
       <div

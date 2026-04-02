@@ -201,6 +201,191 @@ function parseCss(css: string): _CssParsed {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Image Analysis — produces optimal Adjustment deltas from histogram data
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface EnhanceResult {
+  exposure: number;
+  brightness: number;
+  contrast: number;
+  highlights: number;
+  shadows: number;
+  clarity: number;
+  sharpness: number;
+  vibrance: number;
+  warmth: number;
+  tint: number;
+  highlightRolloff: number;
+  // human-readable summary of what was fixed
+  summary: string[];
+}
+
+/**
+ * Analyses the raw image at thumbnail scale (fast), then computes
+ * optimal adjustment values to maximise quality:
+ *   – Auto-levels  : stretch histogram to use full 0-1 range
+ *   – Shadow lift  : recovers dark images by analysing lower quartile
+ *   – Highlight recovery: protects blown highlights
+ *   – Color cast   : detects R/G/B channel imbalance, corrects with warmth/tint
+ *   – Sharpness    : estimates blur via Laplacian variance, boosts if needed
+ *   – Vibrance     : boosts if average chroma is low
+ */
+export async function analyzeImage(imageSrc: string): Promise<EnhanceResult> {
+  // Load at small size for speed — 200px is plenty for histogram analysis
+  const img = await new Promise<HTMLImageElement>((res, rej) => {
+    const i = new Image();
+    i.crossOrigin = 'anonymous';
+    i.onload = () => (i.decode ? i.decode().then(() => res(i)).catch(() => res(i)) : res(i));
+    i.onerror = rej;
+    i.src = imageSrc;
+  });
+
+  const THUMB = 200;
+  const scale = THUMB / Math.max(img.naturalWidth, img.naturalHeight);
+  const tw    = Math.round(img.naturalWidth  * scale);
+  const th    = Math.round(img.naturalHeight * scale);
+
+  const [c, cx] = tmpCanvas(tw, th);
+  cx.drawImage(img, 0, 0, tw, th);
+  const { data: px } = cx.getImageData(0, 0, tw, th);
+  const n = tw * th;
+
+  // ── Histogram + channel stats ─────────────────────────────────────────────
+  let sumR = 0, sumG = 0, sumB = 0, sumL = 0;
+  let minL = 1, maxL = 0;
+  let darkCount = 0, brightCount = 0;
+  let sumChroma = 0;
+  let lapVar = 0; // Laplacian variance for sharpness estimation
+
+  const Lvals = new Float32Array(n);
+
+  for (let i = 0; i < n; i++) {
+    const ri = i << 2;
+    const r = TO_LINEAR[px[ri]], g = TO_LINEAR[px[ri+1]], b = TO_LINEAR[px[ri+2]];
+    sumR += r; sumG += g; sumB += b;
+
+    // Oklab L for luminance
+    rgb8ToOklab(px[ri], px[ri+1], px[ri+2]);
+    const L = _oL;
+    Lvals[i] = L;
+    sumL += L;
+    if (L < minL) minL = L;
+    if (L > maxL) maxL = L;
+    if (L < 0.25) darkCount++;
+    if (L > 0.82) brightCount++;
+
+    // Chroma magnitude
+    sumChroma += Math.sqrt(_oa * _oa + _ob * _ob);
+  }
+
+  // Simple Laplacian on L channel (centre pixel - 4 neighbours) for sharpness
+  for (let y = 1; y < th - 1; y++) {
+    for (let x = 1; x < tw - 1; x++) {
+      const i   = y * tw + x;
+      const lap = 4 * Lvals[i] - Lvals[i-1] - Lvals[i+1] - Lvals[i-tw] - Lvals[i+tw];
+      lapVar += lap * lap;
+    }
+  }
+  lapVar /= n;
+
+  const avgL      = sumL / n;
+  const avgR      = sumR / n;
+  const avgG      = sumG / n;
+  const avgB      = sumB / n;
+  const avgChroma = sumChroma / n;
+  const darkFrac  = darkCount  / n;
+  const brightFrac = brightCount / n;
+  const histRange = maxL - minL;
+
+  // ── Compute optimal adjustments ───────────────────────────────────────────
+  const summary: string[] = [];
+  let exposure = 0, brightness = 0, contrast = 0;
+  let highlights = 0, shadows = 0, clarity = 0, sharpness = 0;
+  let vibrance = 0, warmth = 0, tint = 0, highlightRolloff = 0;
+
+  // 1. Exposure: target median L ≈ 0.44 (slightly below mid for aesthetics)
+  const targetL = 0.44;
+  if (avgL < 0.32) {
+    exposure = Math.round(Math.min(60, (targetL - avgL) / targetL * 80));
+    summary.push(`Brightened by +${exposure} EV`);
+  } else if (avgL > 0.62) {
+    exposure = Math.round(Math.max(-45, (targetL - avgL) / avgL * 60));
+    summary.push(`Reduced exposure ${exposure}`);
+  }
+
+  // 2. Contrast: if histogram is compressed (narrow range), stretch it
+  if (histRange < 0.55) {
+    contrast = Math.round((1 - histRange) * 45);
+    summary.push(`Boosted contrast +${contrast}`);
+  } else if (histRange > 0.95 && brightFrac > 0.08) {
+    contrast = -8;
+  }
+
+  // 3. Shadows: lift if too many dark pixels
+  if (darkFrac > 0.38) {
+    shadows = Math.round(Math.min(55, darkFrac * 100));
+    summary.push(`Lifted shadows +${shadows}`);
+  }
+
+  // 4. Highlights: protect if blown
+  if (brightFrac > 0.12) {
+    highlights = Math.round(Math.max(-55, -brightFrac * 120));
+    highlightRolloff = Math.round(Math.min(50, brightFrac * 80));
+    summary.push(`Protected highlights ${highlights}`);
+  }
+
+  // 5. Clarity: always benefits portraits + landscapes
+  clarity = 14;
+
+  // 6. Sharpness: Laplacian variance < 0.0004 = blurry image
+  if (lapVar < 0.0004) {
+    sharpness = Math.round(Math.min(65, (0.0004 - lapVar) / 0.0004 * 80));
+    summary.push(`Sharpened +${sharpness}`);
+  } else {
+    sharpness = 15; // always a bit of sharpening
+  }
+
+  // 7. Vibrance: if average chroma < 0.06, image is desaturated
+  if (avgChroma < 0.06) {
+    vibrance = Math.round(Math.min(50, (0.06 - avgChroma) / 0.06 * 60));
+    summary.push(`Boosted vibrance +${vibrance}`);
+  } else {
+    vibrance = 12;
+  }
+
+  // 8. Color cast: grey-world assumption — equal R/G/B average = neutral
+  // If R >> B → too warm → reduce warmth. If B >> R → too cool → add warmth.
+  const rg = avgR / (avgG + 1e-6);
+  const bg = avgB / (avgG + 1e-6);
+  if (rg > 1.12) {
+    // Red cast — cool down
+    warmth = Math.round(Math.max(-30, -(rg - 1.12) * 100));
+    summary.push(`Corrected warm cast ${warmth}`);
+  } else if (bg > 1.10) {
+    // Blue cast — warm up
+    warmth = Math.round(Math.min(30, (bg - 1.10) * 110));
+    summary.push(`Corrected cool cast +${warmth}`);
+  }
+
+  // Green cast (magenta tint correction)
+  const gb = avgG / ((avgR + avgB) / 2 + 1e-6);
+  if (gb > 1.08) {
+    tint = Math.round(Math.max(-25, -(gb - 1.08) * 80));
+    summary.push(`Corrected green cast`);
+  } else if (gb < 0.93) {
+    tint = Math.round(Math.min(20, (0.93 - gb) * 70));
+  }
+
+  if (summary.length === 0) summary.push('Already well-balanced');
+
+  return {
+    exposure, brightness, contrast, highlights, shadows,
+    clarity, sharpness, vibrance, warmth, tint, highlightRolloff,
+    summary,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Main render pipeline
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -262,9 +447,20 @@ export async function renderToCanvas(
     const d  = ctx.getImageData(0, 0, W, H);
     const px = d.data;
 
+    // ── Per-channel RGB matrix (Leica color science) ─────────────────────
+    // Applied in linear light before Oklab — simulates sensor-level color bias.
+    // Strength interpolated by filterIntensity; applied with zone-awareness
+    // (stronger in shadows, gentler in highlights = natural sensor behaviour).
+    const fi   = filterIntensity / 100;
+    const rgb  = filter.rgbMatrix;
+    const doRgb = !!rgb && fi > 0;
+    // Interpolate matrix toward identity at low intensity
+    const rgbR = doRgb ? 1 + (rgb![0] - 1) * fi : 1;
+    const rgbG = doRgb ? 1 + (rgb![1] - 1) * fi : 1;
+    const rgbB = doRgb ? 1 + (rgb![2] - 1) * fi : 1;
+
     // ── Merge CSS filter params into Oklab pass ───────────────────────────
     // parseCss is memoized — near-zero cost on repeat calls.
-    const fi   = filterIntensity / 100;
     const cssP = (filter.css !== 'none' && fi > 0) ? parseCss(filter.css) : null;
     // Interpolate each CSS param: identity at fi=0, full value at fi=1
     const fcC   = cssP ? 1 + (cssP.c   - 1) * fi : 1;  // contrast multiplier
@@ -322,8 +518,27 @@ export async function renderToCanvas(
     const SUBK       = 0.14;
 
     for (let i = 0; i < N; i++) {
-      const ri = i << 2; // i * 4, faster
-      rgb8ToOklab(px[ri], px[ri + 1], px[ri + 2]);
+      const ri = i << 2;
+
+      // ── Per-channel RGB matrix (Leica color science) ─────────────────────
+      // Applied in linear light — zone-weighted: full strength in shadows,
+      // fading to 1/4 strength in highlights (natural sensor behaviour).
+      let pr8 = px[ri], pg8 = px[ri + 1], pb8 = px[ri + 2];
+      if (doRgb) {
+        const rl = TO_LINEAR[pr8], gl = TO_LINEAR[pg8], bl = TO_LINEAR[pb8];
+        // Quick luminance for zone weighting
+        const lum = 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
+        // Weight: 1.0 in pure shadows → 0.25 at pure highlights
+        const zw  = 1.0 - lum * 0.75;
+        const mr  = 1 + (rgbR - 1) * zw;
+        const mg  = 1 + (rgbG - 1) * zw;
+        const mb  = 1 + (rgbB - 1) * zw;
+        pr8 = lin2g(clamp01(rl * mr));
+        pg8 = lin2g(clamp01(gl * mg));
+        pb8 = lin2g(clamp01(bl * mb));
+      }
+
+      rgb8ToOklab(pr8, pg8, pb8);
       let L = _oL, a = _oa, b = _ob;
 
       // Exposure (linear-light multiply — zero-alloc inline)
