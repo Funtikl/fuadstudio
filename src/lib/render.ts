@@ -307,16 +307,16 @@ export async function analyzeImage(imageSrc: string): Promise<EnhanceResult> {
   const targetL = 0.44;
   if (avgL < 0.32) {
     exposure = Math.round(Math.min(60, (targetL - avgL) / targetL * 80));
-    summary.push(`Brightened by +${exposure} EV`);
+    summary.push(`+${exposure} EV parlaqlaşdırıldı`);
   } else if (avgL > 0.62) {
     exposure = Math.round(Math.max(-45, (targetL - avgL) / avgL * 60));
-    summary.push(`Reduced exposure ${exposure}`);
+    summary.push(`Ekspozisiya ${exposure} azaldıldı`);
   }
 
   // 2. Contrast: if histogram is compressed (narrow range), stretch it
   if (histRange < 0.55) {
     contrast = Math.round((1 - histRange) * 45);
-    summary.push(`Boosted contrast +${contrast}`);
+    summary.push(`Kontrast +${contrast} artırıldı`);
   } else if (histRange > 0.95 && brightFrac > 0.08) {
     contrast = -8;
   }
@@ -324,14 +324,14 @@ export async function analyzeImage(imageSrc: string): Promise<EnhanceResult> {
   // 3. Shadows: lift if too many dark pixels
   if (darkFrac > 0.38) {
     shadows = Math.round(Math.min(55, darkFrac * 100));
-    summary.push(`Lifted shadows +${shadows}`);
+    summary.push(`Kölgələr +${shadows} qaldırıldı`);
   }
 
   // 4. Highlights: protect if blown
   if (brightFrac > 0.12) {
     highlights = Math.round(Math.max(-55, -brightFrac * 120));
     highlightRolloff = Math.round(Math.min(50, brightFrac * 80));
-    summary.push(`Protected highlights ${highlights}`);
+    summary.push(`Parlaq sahələr ${highlights} qorundu`);
   }
 
   // 5. Clarity: always benefits portraits + landscapes
@@ -340,7 +340,7 @@ export async function analyzeImage(imageSrc: string): Promise<EnhanceResult> {
   // 6. Sharpness: Laplacian variance < 0.0004 = blurry image
   if (lapVar < 0.0004) {
     sharpness = Math.round(Math.min(65, (0.0004 - lapVar) / 0.0004 * 80));
-    summary.push(`Sharpened +${sharpness}`);
+    summary.push(`+${sharpness} kəskinləşdirildi`);
   } else {
     sharpness = 15; // always a bit of sharpening
   }
@@ -348,7 +348,7 @@ export async function analyzeImage(imageSrc: string): Promise<EnhanceResult> {
   // 7. Vibrance: if average chroma < 0.06, image is desaturated
   if (avgChroma < 0.06) {
     vibrance = Math.round(Math.min(50, (0.06 - avgChroma) / 0.06 * 60));
-    summary.push(`Boosted vibrance +${vibrance}`);
+    summary.push(`Vibrans +${vibrance} artırıldı`);
   } else {
     vibrance = 12;
   }
@@ -360,23 +360,23 @@ export async function analyzeImage(imageSrc: string): Promise<EnhanceResult> {
   if (rg > 1.12) {
     // Red cast — cool down
     warmth = Math.round(Math.max(-30, -(rg - 1.12) * 100));
-    summary.push(`Corrected warm cast ${warmth}`);
+    summary.push(`İsti çalar ${warmth} düzəldildi`);
   } else if (bg > 1.10) {
     // Blue cast — warm up
     warmth = Math.round(Math.min(30, (bg - 1.10) * 110));
-    summary.push(`Corrected cool cast +${warmth}`);
+    summary.push(`Soyuq çalar +${warmth} düzəldildi`);
   }
 
   // Green cast (magenta tint correction)
   const gb = avgG / ((avgR + avgB) / 2 + 1e-6);
   if (gb > 1.08) {
     tint = Math.round(Math.max(-25, -(gb - 1.08) * 80));
-    summary.push(`Corrected green cast`);
+    summary.push(`Yaşıl çalar düzəldildi`);
   } else if (gb < 0.93) {
     tint = Math.round(Math.min(20, (0.93 - gb) * 70));
   }
 
-  if (summary.length === 0) summary.push('Already well-balanced');
+  if (summary.length === 0) summary.push('Artıq balanslıdır');
 
   return {
     exposure, brightness, contrast, highlights, shadows,

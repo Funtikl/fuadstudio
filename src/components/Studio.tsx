@@ -40,13 +40,13 @@ export default function Studio({ photos, onOpenCamera, onOpenPhoto, onImport, on
       {/* ─── Header ─────────────────────────────────────────────────── */}
       <header className="flex-shrink-0 px-5 pt-14 pb-4 flex justify-between items-end z-10 relative">
         <div>
-          <p className="text-[8px] uppercase tracking-[0.38em] text-[#3a3530] mb-1.5 font-medium">Analog</p>
+          <p className="text-[8px] uppercase tracking-[0.38em] text-[#3a3530] mb-1.5 font-medium">Analoq</p>
           <h1 className="text-[26px] font-serif italic font-light leading-none tracking-wide text-[#e8e4df]">
-            Fuad's Studio
+            Photo Studio
           </h1>
           {photos.length > 0 && (
             <p className="text-[8px] tracking-[0.12em] text-[#3a3530] mt-1.5 font-light tabular-nums">
-              {photos.length} {photos.length === 1 ? 'photo' : 'photos'}
+              {photos.length} {photos.length === 1 ? 'foto' : 'foto'}
             </p>
           )}
         </div>
@@ -61,8 +61,8 @@ export default function Studio({ photos, onOpenCamera, onOpenPhoto, onImport, on
             }`}
           >
             {deleteMode
-              ? <><X className="w-3 h-3" strokeWidth={2} /> Done</>
-              : <><Trash2 className="w-3 h-3" strokeWidth={1.5} /> Edit</>
+              ? <><X className="w-3 h-3" strokeWidth={2} /> Hazırdır</>
+              : <><Trash2 className="w-3 h-3" strokeWidth={1.5} /> Düzəlt</>
             }
           </button>
         )}
@@ -153,19 +153,19 @@ export default function Studio({ photos, onOpenCamera, onOpenPhoto, onImport, on
               boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
             }}
           >
-            <span className="text-[11px] text-[#c8bfb0]/65 font-light">Delete this photo?</span>
+            <span className="text-[11px] text-[#c8bfb0]/65 font-light">Bu fotonu silək?</span>
             <div className="flex gap-2">
               <button
                 onClick={() => setPendingDelete(null)}
                 className="px-3.5 py-1.5 rounded-full text-[9px] font-medium uppercase tracking-wider text-[#5a544c] border border-white/[0.07] active:scale-95 transition-all"
               >
-                Cancel
+                İmtina
               </button>
               <button
                 onClick={confirmDelete}
                 className="px-3.5 py-1.5 rounded-full text-[9px] font-medium uppercase tracking-wider bg-red-500/90 text-white active:scale-95 transition-all active:bg-red-600/90"
               >
-                Delete
+                Sil
               </button>
             </div>
           </motion.div>
@@ -272,10 +272,10 @@ const EmptyState = React.memo(function EmptyState() {
 
       <div className="text-center space-y-2.5">
         <p className="text-[10px] uppercase tracking-[0.28em] text-[#c8bfb0]/50 font-medium">
-          Your studio is empty
+          Studiyanız boşdur
         </p>
         <p className="text-[11px] text-[#3a3530] max-w-[190px] mx-auto font-light leading-relaxed">
-          Import a photograph or tap the shutter to begin.
+          Başlamaq üçün foto yükləyin və ya çəkim düyməsinə toxunun.
         </p>
       </div>
     </motion.div>

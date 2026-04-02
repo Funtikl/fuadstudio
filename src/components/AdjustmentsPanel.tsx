@@ -25,63 +25,63 @@ interface ToolDef {
 
 // Flat ordered list of all tools — no accordion, just scroll
 const TOOLS: ToolDef[] = [
-  // Tone
-  { key: "exposure",   label: "Exposure",   icon: Sun,             min: -100, max: 100, group: "Tone" },
-  { key: "brightness", label: "Bright",     icon: CircleDashed,    min: -100, max: 100, group: "Tone" },
-  { key: "contrast",   label: "Contrast",   icon: Contrast,        min: -100, max: 100, group: "Tone" },
-  { key: "highlights", label: "Highs",      icon: ArrowUpCircle,   min: -100, max: 100, group: "Tone" },
-  { key: "shadows",    label: "Shadows",    icon: ArrowDownCircle, min: -100, max: 100, group: "Tone" },
-  // Detail
-  { key: "sharpness",        label: "Sharpen", icon: Diamond,    min: 0, max: 100, group: "Detail" },
-  { key: "clarity",          label: "Clarity", icon: Eclipse,    min: -100, max: 100, group: "Detail" },
-  { key: "microContrast",    label: "Micro",   icon: Box,        min: 0, max: 100, group: "Detail" },
-  { key: "detail",           label: "Detail",  icon: ScanSearch, min: 0, max: 100, group: "Detail" },
-  { key: "dehaze",           label: "Dehaze",  icon: Wind,       min: -100, max: 100, group: "Detail" },
-  { key: "highlightRolloff", label: "Rolloff", icon: Sun,        min: 0, max: 100, group: "Detail" },
-  // Color
-  { key: "saturation",         label: "Saturat",  icon: Droplet,     min: -100, max: 100, group: "Color" },
-  { key: "vibrance",           label: "Vibrance", icon: Zap,         min: -100, max: 100, group: "Color" },
-  { key: "warmth",             label: "Warmth",   icon: Thermometer, min: -100, max: 100, group: "Color" },
-  { key: "tint",               label: "Tint",     icon: Pipette,     min: -100, max: 100, group: "Color" },
-  { key: "hue",                label: "Hue",      icon: Palette,     min: -180, max: 180, group: "Color" },
-  { key: "splitToneShadow",    label: "Shd Hue",  icon: Moon,        min: -180, max: 180, group: "Color" },
-  { key: "splitToneHighlight", label: "Hi Hue",   icon: Sunrise,     min: -180, max: 180, group: "Color" },
-  // Effects
-  { key: "fade",         label: "Fade",    icon: Layers, min: 0, max: 100, group: "FX" },
-  { key: "vignette",     label: "Vignette",icon: Focus,  min: 0, max: 100, group: "FX" },
-  { key: "bloom",        label: "Bloom",   icon: Flower, min: 0, max: 100, group: "FX" },
-  { key: "softFocus",    label: "SoftFx",  icon: Disc,   min: 0, max: 100, group: "FX" },
-  { key: "portraitGlow", label: "Glow",    icon: Heart,  min: 0, max: 100, group: "FX" },
-  // Analog
-  { key: "grain",               label: "Grain",   icon: Sparkles,    min: 0, max: 100, group: "Film" },
-  { key: "halation",            label: "Halation",icon: Eclipse,     min: 0, max: 100, group: "Film" },
-  { key: "lightLeak",           label: "Leak",    icon: Zap,         min: 0, max: 100, group: "Film" },
-  { key: "filmBurn",            label: "Burn",    icon: Flame,       min: 0, max: 100, group: "Film" },
-  { key: "dust",                label: "Dust",    icon: CircleDashed,min: 0, max: 100, group: "Film" },
-  { key: "chromaticAberration", label: "Chroma",  icon: Aperture,    min: 0, max: 100, group: "Film" },
-  // Classic
-  { key: "sepia",     label: "Sepia",     icon: ImageIcon,      min: 0, max: 100, group: "Classic" },
-  { key: "grayscale", label: "B&W",       icon: PaintBucket,    min: 0, max: 100, group: "Classic" },
-  { key: "invert",    label: "Invert",    icon: FlipHorizontal, min: 0, max: 100, group: "Classic" },
-  { key: "blur",      label: "Blur",      icon: CloudFog,       min: 0, max: 100, group: "Classic" },
-  // Creative
-  { key: "dispersion", label: "Scatter", icon: Star,      min: 0, max: 100, group: "Creative" },
-  { key: "posterize",  label: "Poster",  icon: LayoutGrid,min: 0, max: 100, group: "Creative" },
-  { key: "pixelate",   label: "Pixel",   icon: Hash,      min: 0, max: 100, group: "Creative" },
-  { key: "scanLines",  label: "Scan",    icon: ScanLine,  min: 0, max: 100, group: "Creative" },
+  // Ton
+  { key: "exposure",   label: "Ekspozisiya", icon: Sun,             min: -100, max: 100, group: "Ton" },
+  { key: "brightness", label: "Parlaqlıq",   icon: CircleDashed,    min: -100, max: 100, group: "Ton" },
+  { key: "contrast",   label: "Kontrast",     icon: Contrast,        min: -100, max: 100, group: "Ton" },
+  { key: "highlights", label: "Açıq-rəng",    icon: ArrowUpCircle,   min: -100, max: 100, group: "Ton" },
+  { key: "shadows",    label: "Kölgələr",     icon: ArrowDownCircle, min: -100, max: 100, group: "Ton" },
+  // Detal
+  { key: "sharpness",        label: "Kəskinlik", icon: Diamond,    min: 0, max: 100, group: "Detal" },
+  { key: "clarity",          label: "Aydınlıq",  icon: Eclipse,    min: -100, max: 100, group: "Detal" },
+  { key: "microContrast",    label: "Mikro",     icon: Box,        min: 0, max: 100, group: "Detal" },
+  { key: "detail",           label: "Detal",     icon: ScanSearch, min: 0, max: 100, group: "Detal" },
+  { key: "dehaze",           label: "Dumanlılıq",icon: Wind,       min: -100, max: 100, group: "Detal" },
+  { key: "highlightRolloff", label: "Rollof",    icon: Sun,        min: 0, max: 100, group: "Detal" },
+  // Rəng
+  { key: "saturation",         label: "Doyğunluq", icon: Droplet,     min: -100, max: 100, group: "Rəng" },
+  { key: "vibrance",           label: "Vibrans",    icon: Zap,         min: -100, max: 100, group: "Rəng" },
+  { key: "warmth",             label: "İstilik",    icon: Thermometer, min: -100, max: 100, group: "Rəng" },
+  { key: "tint",               label: "Çalar",      icon: Pipette,     min: -100, max: 100, group: "Rəng" },
+  { key: "hue",                label: "Rəng-tonu",  icon: Palette,     min: -180, max: 180, group: "Rəng" },
+  { key: "splitToneShadow",    label: "Kölgə-ton",  icon: Moon,        min: -180, max: 180, group: "Rəng" },
+  { key: "splitToneHighlight", label: "Parlaq-ton", icon: Sunrise,     min: -180, max: 180, group: "Rəng" },
+  // FX
+  { key: "fade",         label: "Solğunluq", icon: Layers, min: 0, max: 100, group: "FX" },
+  { key: "vignette",     label: "Vinyet",    icon: Focus,  min: 0, max: 100, group: "FX" },
+  { key: "bloom",        label: "Parıltı",   icon: Flower, min: 0, max: 100, group: "FX" },
+  { key: "softFocus",    label: "Yumşaq",    icon: Disc,   min: 0, max: 100, group: "FX" },
+  { key: "portraitGlow", label: "Göy",       icon: Heart,  min: 0, max: 100, group: "FX" },
+  // Film
+  { key: "grain",               label: "Taxıl",     icon: Sparkles,    min: 0, max: 100, group: "Film" },
+  { key: "halation",            label: "Halasiya",  icon: Eclipse,     min: 0, max: 100, group: "Film" },
+  { key: "lightLeak",           label: "Sızma",     icon: Zap,         min: 0, max: 100, group: "Film" },
+  { key: "filmBurn",            label: "Yanıq",     icon: Flame,       min: 0, max: 100, group: "Film" },
+  { key: "dust",                label: "Toz",       icon: CircleDashed,min: 0, max: 100, group: "Film" },
+  { key: "chromaticAberration", label: "Xromatik",  icon: Aperture,    min: 0, max: 100, group: "Film" },
+  // Klassik
+  { key: "sepia",     label: "Sepiya",    icon: ImageIcon,      min: 0, max: 100, group: "Klassik" },
+  { key: "grayscale", label: "Ağ-qara",   icon: PaintBucket,    min: 0, max: 100, group: "Klassik" },
+  { key: "invert",    label: "İnvert",    icon: FlipHorizontal, min: 0, max: 100, group: "Klassik" },
+  { key: "blur",      label: "Bulanıq",    icon: CloudFog,       min: 0, max: 100, group: "Klassik" },
+  // Kreativ
+  { key: "dispersion", label: "Dağılma",   icon: Star,      min: 0, max: 100, group: "Kreativ" },
+  { key: "posterize",  label: "Poster",    icon: LayoutGrid,min: 0, max: 100, group: "Kreativ" },
+  { key: "pixelate",   label: "Piksel",    icon: Hash,      min: 0, max: 100, group: "Kreativ" },
+  { key: "scanLines",  label: "Skan-xətt", icon: ScanLine,  min: 0, max: 100, group: "Kreativ" },
 ];
 
 const FALLBACK = TOOLS[0];
 
 // Group colour accents (subtle)
 const GROUP_COLORS: Record<string, string> = {
-  Tone:    'rgba(200,191,176,0.14)',
-  Detail:  'rgba(150,180,200,0.12)',
-  Color:   'rgba(200,150,180,0.12)',
+  Ton:     'rgba(200,191,176,0.14)',
+  Detal:   'rgba(150,180,200,0.12)',
+  Rəng:    'rgba(200,150,180,0.12)',
   FX:      'rgba(180,200,150,0.12)',
   Film:    'rgba(200,170,130,0.12)',
-  Classic: 'rgba(160,160,160,0.12)',
-  Creative:'rgba(180,150,200,0.12)',
+  Klassik: 'rgba(160,160,160,0.12)',
+  Kreativ: 'rgba(180,150,200,0.12)',
 };
 
 export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
@@ -137,7 +137,7 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 flex justify-between items-center px-4 pt-2.5 pb-1">
         <div className="flex items-center gap-2">
-          <span className="text-[8px] uppercase tracking-[0.22em] text-[#3a3530] font-semibold">Adjust</span>
+          <span className="text-[8px] uppercase tracking-[0.22em] text-[#3a3530] font-semibold">Nizamla</span>
           {changedCount > 0 && (
             <span
               className="text-[7px] px-1.5 py-0.5 rounded-full font-mono text-[#5a544c] tabular-nums"
@@ -152,7 +152,7 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
           className="flex items-center gap-1 text-[#2e2a26] active:text-[#c8bfb0] transition-colors"
         >
           <RotateCcw className="w-2.5 h-2.5" strokeWidth={2} />
-          <span className="text-[8px] uppercase tracking-[0.12em] font-medium">Reset</span>
+          <span className="text-[8px] uppercase tracking-[0.12em] font-medium">Sıfırla</span>
         </button>
       </div>
 

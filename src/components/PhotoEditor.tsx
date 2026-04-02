@@ -247,7 +247,7 @@ export default function PhotoEditor({
           const url = URL.createObjectURL(blob);
           const a   = document.createElement('a');
           a.href     = url;
-          a.download = `fuads-studio-${activeFilter.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.png`;
+          a.download = `photo-studio-${activeFilter.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.png`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
@@ -324,13 +324,13 @@ export default function PhotoEditor({
 
         {/* Right: enhance / export / save */}
         <div className="flex items-center gap-1.5">
-          <TopBtn onClick={handleAutoEnhance} disabled={isEnhancing} title="Enhance Quality">
+          <TopBtn onClick={handleAutoEnhance} disabled={isEnhancing} title="Keyfiyyəti artır">
             {isEnhancing
               ? <span className="w-3 h-3 rounded-full border border-[#c8bfb0]/40 border-t-[#c8bfb0] animate-spin" />
               : <Sparkles className="w-3.5 h-3.5" strokeWidth={1.5} />
             }
           </TopBtn>
-          <TopBtn onClick={handleExport} disabled={isExporting} title="Export PNG">
+          <TopBtn onClick={handleExport} disabled={isExporting} title="PNG kimi saxla">
             {isExporting
               ? <span className="w-3 h-3 rounded-full border border-[#c8bfb0]/40 border-t-[#c8bfb0] animate-spin" />
               : <Download className="w-3.5 h-3.5" strokeWidth={1.5} />
@@ -340,7 +340,7 @@ export default function PhotoEditor({
             onClick={handleSave}
             className="px-4 py-1.5 rounded-full bg-[#e8e4df] text-[#060504] text-[9px] uppercase tracking-[0.18em] font-semibold active:scale-95 active:bg-[#d4cfc8] transition-all duration-150"
           >
-            Save
+            Yadda saxla
           </button>
         </div>
       </div>
@@ -358,7 +358,7 @@ export default function PhotoEditor({
           >
             <div className="flex items-center gap-2 mb-1">
               <Sparkles className="w-2.5 h-2.5 text-[#c8bfb0]" strokeWidth={1.5} />
-              <span className="text-[8px] uppercase tracking-[0.18em] text-[#c8bfb0] font-semibold">Enhanced</span>
+              <span className="text-[8px] uppercase tracking-[0.18em] text-[#c8bfb0] font-semibold">Tənzimləndi</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {enhanceSummary.map((s, i) => (
@@ -425,7 +425,7 @@ export default function PhotoEditor({
                 className="absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full pointer-events-none"
                 style={{ background: 'rgba(6,5,4,0.7)', backdropFilter: 'blur(8px)' }}
               >
-                <span className="text-[8px] uppercase tracking-[0.2em] text-[#c8bfb0]/70 font-medium">Original</span>
+                <span className="text-[8px] uppercase tracking-[0.2em] text-[#c8bfb0]/70 font-medium">Orijinal</span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -478,7 +478,7 @@ export default function PhotoEditor({
                     transition={{ type: "spring", bounce: 0.18, duration: 0.4 }}
                   />
                 )}
-                {tab}
+                {tab === 'presets' ? 'filtrlər' : 'nizamla'}
               </button>
             ))}
           </div>

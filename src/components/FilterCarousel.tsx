@@ -27,7 +27,7 @@ const QUICK_PARAMS: {
   min: number;
   max: number;
 }[] = [
-  { key: "microContrast",        label: "3D Pop",  icon: Box,         min: 0, max: 100 },
+  { key: "microContrast",        label: "3D Effekt", icon: Box,         min: 0, max: 100 },
   { key: "highlightRolloff",     label: "Rolloff", icon: ChevronDown, min: 0, max: 100 },
   { key: "grain",                label: "Grain",   icon: Sparkles,    min: 0, max: 100 },
   { key: "vignette",             label: "Vignette",icon: Focus,       min: 0, max: 100 },
@@ -122,7 +122,7 @@ const StrengthSlider = memo(function StrengthSlider({ value, onChange }: Strengt
   return (
     <div className="flex items-center gap-3">
       <span className="text-[8px] uppercase tracking-[0.16em] text-[#4a4440] font-semibold w-12 flex-shrink-0">
-        Strength
+        Güc
       </span>
       <div className="relative flex-1 h-[42px] flex items-center">
         <input
@@ -291,7 +291,7 @@ export default function FilterCarousel({
                       style={{ background: 'linear-gradient(135deg, #1a1510 0%, #0c0a08 100%)' }}
                     >
                       <span className="text-[7px] uppercase tracking-[0.14em] text-[#3a3530] font-semibold text-center leading-tight px-1">
-                        None
+                        Yoxdur
                       </span>
                     </div>
                   ) : previewImage ? (
