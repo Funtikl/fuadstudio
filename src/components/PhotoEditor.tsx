@@ -28,21 +28,13 @@ const clampAdj = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi
 export default function PhotoEditor({
   imageSrc, initialFilterId, initialFilterIntensity, initialAdjustments, onClose, onSave,
 }: PhotoEditorProps) {
-  const canvasRef        = useRef<HTMLCanvasElement>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const [activeTab, setActiveTab] = useState<"presets" | "adjust">("presets");
   const [isExporting, setIsExporting]         = useState(false);
   const [isRendering, setIsRendering]         = useState(false);
   const [isComparing, setIsComparing]         = useState(false);
   const [isEnhancing, setIsEnhancing]         = useState(false);
   const [enhanceSummary, setEnhanceSummary]   = useState<string[] | null>(null);
-  const [renderedPreview, setRenderedPreview] = useState<string | null>(null);
-  const renderVersionRef = useRef(0);
-
-  // Revoke any blob URL when component unmounts to avoid memory leaks
-  useEffect(() => () => {
-    if (renderedPreview && renderedPreview.startsWith('blob:')) URL.revokeObjectURL(renderedPreview);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const [history, setHistory]         = useState<EditorState[]>([
     { filterId: initialFilterId, filterIntensity: initialFilterIntensity, adjustments: initialAdjustments },
@@ -56,43 +48,56 @@ export default function PhotoEditor({
   const canUndo = currentIndex > 0;
   const canRedo = currentIndex < history.length - 1;
 
-  // ── Render to preview whenever a committed state changes ──────────────────
-  //
-  // Preview resolution: use physical pixels of the device's longest screen
-  // edge (capped at 1200px) so the preview is always crisp on Retina/OLED
-  // screens without being wastefully large.
-  // Preview format: PNG (lossless) — JPEG would degrade quality on every edit.
+  // ── Render to preview whenever ANY state changes (live preview) ────────────
+  const nextRenderRef = useRef<EditorState | null>(null);
+  const isRenderingRef = useRef(false);
+
+  const requestRender = useCallback((state: EditorState) => {
+    if (isRenderingRef.current) {
+       nextRenderRef.current = state;
+       return;
+    }
+
+    const run = async (s: EditorState) => {
+      isRenderingRef.current = true;
+      try {
+        setIsRendering(true);
+        const dpr = Math.min(window.devicePixelRatio || 1, 3);
+        const previewPx = Math.min(
+          Math.round(Math.max(window.screen.width, window.screen.height) * dpr),
+          900
+        );
+
+        // Render to offscreen canvas to prevent screen tearing while chunking
+         const off = document.createElement('canvas');
+         const filter = FILTERS.find(f => f.id === s.filterId) ?? FILTERS[0];
+         await renderToCanvas(imageSrc, filter, s.filterIntensity, s.adjustments, off, previewPx);
+
+         if (previewCanvasRef.current) {
+            const vis = previewCanvasRef.current;
+            const ctx = vis.getContext('2d');
+            vis.width = off.width;
+            vis.height = off.height;
+            ctx?.drawImage(off, 0, 0);
+         }
+      } catch (e) {
+         console.error('live render error', e);
+      } finally {
+        setIsRendering(false);
+        isRenderingRef.current = false;
+        if (nextRenderRef.current) {
+           const next = nextRenderRef.current;
+           nextRenderRef.current = null;
+           run(next);
+        }
+      }
+    };
+    run(state);
+  }, [imageSrc]);
+
   useEffect(() => {
-    if (draftState) return;
-    const version = ++renderVersionRef.current;
-    setIsRendering(true);
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    const previewPx = Math.min(
-      Math.round(Math.max(window.screen.width, window.screen.height) * dpr),
-      900,
-    );
-    const pc = document.createElement('canvas');
-    renderToCanvas(imageSrc, activeFilter, filterIntensity, adjustments, pc, previewPx)
-      .then(() => new Promise<string>((res, rej) => {
-        // toBlob is async — doesn't block the main thread like toDataURL
-        pc.toBlob(blob => {
-          if (!blob) { rej(new Error('preview blob failed')); return; }
-          res(URL.createObjectURL(blob));
-        }, 'image/png');
-      }))
-      .then(url => {
-        if (renderVersionRef.current !== version) { URL.revokeObjectURL(url); return; }
-        setRenderedPreview(prev => {
-          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-          return url;
-        });
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (renderVersionRef.current === version) setIsRendering(false);
-      });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history, currentIndex]);
+    if (!isComparing) requestRender(currentState);
+  }, [currentState, isComparing, requestRender]);
 
   const commitState = useCallback((s: EditorState) => {
     setHistory(h => {
@@ -231,13 +236,13 @@ export default function PhotoEditor({
   const handleExport = useCallback(async () => {
     setIsExporting(true);
     try {
-      const canvas = canvasRef.current!;
+      const exportCanvas = document.createElement('canvas');
       // Render at full native resolution — no maxDimension cap
-      await renderToCanvas(imageSrc, activeFilter, filterIntensity, adjustments, canvas);
+      await renderToCanvas(imageSrc, activeFilter, filterIntensity, adjustments, exportCanvas);
       // toBlob is async — avoids main-thread freeze that toDataURL causes on
       // large canvases, and is more memory-efficient (no base64 overhead)
       await new Promise<void>((res, rej) => {
-        canvas.toBlob(blob => {
+        exportCanvas.toBlob(blob => {
           if (!blob) { rej(new Error('Export failed')); return; }
           const url = URL.createObjectURL(blob);
           const a   = document.createElement('a');
@@ -262,12 +267,14 @@ export default function PhotoEditor({
     onSave(activeFilterId, filterIntensity, adjustments);
   }, [onSave, activeFilterId, filterIntensity, adjustments]);
 
-  // Show draft CSS preview OR committed rendered preview
-  const showRendered = !!renderedPreview && !draftState && !isComparing;
-  const showDraftOverlays = (!!draftState || !renderedPreview) && !isComparing;
+  // Derived states
+
 
   return (
-    <div className="relative w-full h-full bg-[#060504] flex flex-col overflow-hidden">
+    <div className="relative w-full h-full bg-[#060504] flex flex-col lg:flex-row overflow-hidden">
+
+      {/* ─── Main Content Area ──────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col relative min-w-0 min-h-0">
 
       {/* ─── Render progress bar ──────────────────────────────────────── */}
       <AnimatePresence>
@@ -383,80 +390,28 @@ export default function PhotoEditor({
 
         {/* Photo frame */}
         <div
-          className="relative max-w-full max-h-full"
-          style={{ borderRadius: 3, overflow: 'hidden' }}
+          className="relative max-w-full max-h-full flex items-center justify-center cursor-pointer select-none"
+          style={{ borderRadius: 3, overflow: 'hidden', touchAction: 'none', WebkitTouchCallout: 'none' }}
+          onPointerDown={() => setIsComparing(true)}
+          onPointerUp={() => setIsComparing(false)}
+          onPointerCancel={() => setIsComparing(false)}
+          onPointerLeave={() => setIsComparing(false)}
+          onContextMenu={e => e.preventDefault()}
         >
-          {/* Rendered / CSS preview */}
-          {showRendered ? (
-            <motion.img
-              key="rendered"
-              src={renderedPreview!}
-              alt="Preview"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.25 }}
-              className="max-w-full max-h-full object-contain block"
-              draggable={false}
-              style={{ imageRendering: 'auto' }}
-            />
+          {/* Live Rendered Canvas / Original Image view */}
+          {isComparing ? (
+             <img
+               src={imageSrc}
+               alt="Original"
+               className="max-w-full max-h-full object-contain block"
+               draggable={false}
+             />
           ) : (
-            <div
-              className="relative flex items-center justify-center"
-              style={{ filter: isComparing ? 'none' : previewFilter }}
-            >
-              <img
-                src={imageSrc}
-                alt="Preview"
-                className="max-w-full max-h-full object-contain block"
-                draggable={false}
-              />
-              {!isComparing && activeFilter.css !== "none" && (
-                <img
-                  src={imageSrc}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-contain"
-                  style={{ filter: activeFilter.css, opacity: filterIntensity / 100 }}
-                  draggable={false}
-                />
-              )}
-            </div>
-          )}
-
-          {/* CSS overlay effects during draft (fast live preview) */}
-          {showDraftOverlays && (
-            <>
-              {activeFilter.tintOverlay && (
-                <div className="absolute inset-0 pointer-events-none"
-                  style={{ backgroundColor: activeFilter.tintOverlay }} />
-              )}
-              {activeFilter.shadowTint && (
-                <div className="absolute inset-0 pointer-events-none mix-blend-multiply"
-                  style={{ background: `radial-gradient(ellipse at center, rgba(255,255,255,0.97) 20%, ${activeFilter.shadowTint} 100%)` }} />
-              )}
-              {adjustments.fade > 0 && (
-                <div className="absolute inset-0 pointer-events-none mix-blend-lighten"
-                  style={{ backgroundColor: `rgba(50,50,50,${adjustments.fade / 100})` }} />
-              )}
-              {adjustments.vignette > 0 && (
-                <div className="absolute inset-0 pointer-events-none"
-                  style={{ background: `radial-gradient(circle, transparent 35%, rgba(0,0,0,${adjustments.vignette / 100 * 0.9}))` }} />
-              )}
-              {adjustments.grain > 0 && (
-                <div className="absolute inset-0 pointer-events-none mix-blend-overlay"
-                  style={{
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
-                    opacity: (adjustments.grain / 100) * 0.5,
-                  }} />
-              )}
-              {adjustments.splitToneShadow !== 0 && (
-                <div className="absolute inset-0 pointer-events-none mix-blend-multiply"
-                  style={{ backgroundColor: `rgba(${hueToRgb(adjustments.splitToneShadow)}, 0.18)` }} />
-              )}
-              {adjustments.splitToneHighlight !== 0 && (
-                <div className="absolute inset-0 pointer-events-none mix-blend-screen"
-                  style={{ backgroundColor: `rgba(${hueToRgb(adjustments.splitToneHighlight)}, 0.14)` }} />
-              )}
-            </>
+             <canvas
+               ref={previewCanvasRef}
+               className="max-w-full max-h-full object-contain block transition-opacity duration-200"
+               style={{ opacity: isRendering && (!history.length || draftState) ? 0.95 : 1 }}
+             />
           )}
 
           {/* "Original" compare label */}
@@ -490,15 +445,15 @@ export default function PhotoEditor({
           </AnimatePresence>
         </div>
       </div>
+      
+      </div>
 
-      {/* ─── Bottom panel ─────────────────────────────────────────────── */}
+      {/* ─── Bottom / Side panel ─────────────────────────────────────────────── */}
       <div
-        className="flex-shrink-0 flex flex-col z-30"
+        className={`flex-shrink-0 flex flex-col z-30 lg:w-[350px] xl:w-[400px] border-t lg:border-t-0 lg:border-l border-[rgba(200,191,176,0.055)] ${activeTab === 'adjust' ? '' : 'max-h-[52vh] lg:max-h-none lg:h-full'}`}
         style={{
           background: 'rgba(7,5,3,0.98)',
-          borderTop: '1px solid rgba(200,191,176,0.055)',
-          boxShadow: '0 -24px 48px rgba(0,0,0,0.55)',
-          maxHeight: activeTab === 'adjust' ? 'none' : '52vh',
+          boxShadow: '0 0 48px rgba(0,0,0,0.55)',
         }}
       >
         {/* Tab switcher */}
@@ -547,7 +502,6 @@ export default function PhotoEditor({
         </div>
       </div>
 
-      <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 }

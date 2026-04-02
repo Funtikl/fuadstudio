@@ -431,6 +431,16 @@ export async function renderToCanvas(
     ctx.drawImage(img, 0, 0, W, H);
   }
 
+  // Scale all user adjustments by filterIntensity so the 'Strength' slider affects everything
+  const _fi = filterIntensity / 100;
+  const scaledAdj = { ...adj };
+  for (const key in scaledAdj) {
+    if (key !== 'hue' && key !== 'splitToneShadow' && key !== 'splitToneHighlight') {
+      (scaledAdj as any)[key] = ((scaledAdj as any)[key] as number) * _fi;
+    }
+  }
+  adj = scaledAdj;
+
   // ── Step 2: (CSS filter params now baked into Oklab pass — no canvas needed)
 
   await yld();
@@ -518,6 +528,7 @@ export async function renderToCanvas(
     const SUBK       = 0.14;
 
     for (let i = 0; i < N; i++) {
+      if ((i & 32767) === 0) await yld();
       const ri = i << 2;
 
       // ── Per-channel RGB matrix (Leica color science) ─────────────────────
@@ -603,11 +614,11 @@ export async function renderToCanvas(
       // Grayscale
       if (doGray) { a *= (1 - grayAmt); b *= (1 - grayAmt); }
 
-      // Split tone — pre-computed trig
+      // Split tone — strength modulated by _fi
       if (doStSh) {
         const sw = shadowW(L);
         if (sw > 0.01) {
-          const w = sw * 0.72;
+          const w = sw * 0.72 * _fi;
           const w1 = 1 - w;
           a = a * w1 + stShCos * w;
           b = b * w1 + stShSin * w;
@@ -616,7 +627,7 @@ export async function renderToCanvas(
       if (doStHi) {
         const hw = highlightW(L);
         if (hw > 0.01) {
-          const w = hw * 0.60;
+          const w = hw * 0.60 * _fi;
           const w1 = 1 - w;
           a = a * w1 + stHiCos * w;
           b = b * w1 + stHiSin * w;
@@ -727,6 +738,7 @@ export async function renderToCanvas(
 
     // Single write-back pass
     for (let i = 0; i < N; i++) {
+      if ((i & 32767) === 0) await yld();
       const ri = i << 2;
       rgb8ToOklab(px[ri], px[ri + 1], px[ri + 2]);
       let L = _oL;

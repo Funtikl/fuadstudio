@@ -169,7 +169,7 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
           </span>
         </div>
 
-        <div className="relative w-full h-8 flex items-center">
+        <div className="relative w-full h-12 flex items-center">
           <input
             type="range" min={activeTool.min} max={activeTool.max} value={localVal}
             onChange={handleChange}
@@ -182,10 +182,10 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
             style={{ touchAction: "none" }}
           />
           {/* Track */}
-          <div className="w-full h-[2px] rounded-full relative" style={{ background: 'rgba(200,191,176,0.10)' }}>
+          <div className="w-full h-[3px] rounded-full relative" style={{ background: 'rgba(200,191,176,0.10)' }}>
             {activeTool.min < 0 && (
               <div
-                className="absolute left-1/2 -translate-x-1/2 w-px h-3 -top-[5px] rounded-full"
+                className="absolute left-1/2 -translate-x-1/2 w-px h-[14px] -top-[5.5px] rounded-full"
                 style={{ background: 'rgba(200,191,176,0.20)' }}
               />
             )}
@@ -203,12 +203,12 @@ export default function AdjustmentsPanel({ adjustments, onChange }: Props) {
           </div>
           {/* Thumb */}
           <div
-            className="absolute w-[20px] h-[20px] rounded-full pointer-events-none"
+            className="absolute w-[24px] h-[24px] rounded-full pointer-events-none"
             style={{
               left: `${pct}%`,
               transform: 'translateX(-50%)',
               background: '#e8e4df',
-              boxShadow: '0 1px 8px rgba(0,0,0,0.60)',
+              boxShadow: '0 2px 10px rgba(0,0,0,0.40)',
             }}
           />
         </div>

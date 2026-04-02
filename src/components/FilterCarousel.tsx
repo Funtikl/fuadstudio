@@ -124,7 +124,7 @@ const StrengthSlider = memo(function StrengthSlider({ value, onChange }: Strengt
       <span className="text-[8px] uppercase tracking-[0.16em] text-[#4a4440] font-semibold w-12 flex-shrink-0">
         Strength
       </span>
-      <div className="relative flex-1 h-[26px] flex items-center">
+      <div className="relative flex-1 h-[42px] flex items-center">
         <input
           type="range" min={0} max={100} value={local}
           onChange={handleChange}
@@ -133,11 +133,11 @@ const StrengthSlider = memo(function StrengthSlider({ value, onChange }: Strengt
           className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
           style={{ touchAction: "none" }}
         />
-        <div className="w-full h-[2.5px] rounded-full" style={{ background: 'rgba(200,191,176,0.10)' }}>
+        <div className="w-full h-[3px] rounded-full" style={{ background: 'rgba(200,191,176,0.10)' }}>
           <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'rgba(200,191,176,0.72)' }} />
         </div>
         <div
-          className="absolute w-[20px] h-[20px] rounded-full pointer-events-none"
+          className="absolute w-[22px] h-[22px] rounded-full pointer-events-none"
           style={{
             left: `${pct}%`, transform: 'translateX(-50%)',
             background: '#e8e4df', boxShadow: '0 2px 10px rgba(0,0,0,0.55)',

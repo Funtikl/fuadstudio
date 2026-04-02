@@ -73,7 +73,7 @@ export default function Studio({ photos, onOpenCamera, onOpenPhoto, onImport, on
         {sorted.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="grid grid-cols-3 gap-px">
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-px">
             {sorted.map((photo, idx) => {
               const filter    = FILTERS.find(f => f.id === photo.filterId);
               const isPending = pendingDelete === photo.id;
